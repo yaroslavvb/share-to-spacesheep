@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Share to spacesheep</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="android app-shell">
+  <div class="card">
+    <header class="top">
+      <img src="icons/icon-32.png" width="20" height="20" alt="" class="logo">
+      <span class="brand">Share to spacesheep</span>
+    </header>
+
+    <main id="view" aria-live="polite">
+      <p class="muted">Preparing…</p>
+    </main>
+
+    <nav class="ways" id="ways">
+      <button type="button" class="link" id="btn-home" hidden>Share another page or file…</button>
+      <button type="button" class="link" id="btn-pick-files">Move files from your device…</button>
+    </nav>
+
+    <footer class="foot" id="foot">
+      <span id="who">Checking connection…</span>
+      <div class="foot-actions">
+        <button type="button" class="link" id="btn-key-toggle">API key</button>
+        <button type="button" class="link" id="disconnect" hidden>Disconnect</button>
+      </div>
+    </footer>
+
+    <section class="key-box" id="key-box" hidden>
+      <label class="field">Connect with a spacesheep API key
+        <input type="password" id="key-input" placeholder="ss_…" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <button type="button" class="primary" id="key-save">Save key</button>
+        <button type="button" class="secondary" id="key-cancel">Cancel</button>
+      </div>
+    </section>
+  </div>
+
+  <template id="t-launcher">
+    <section class="launcher">
+      <h1 class="launcher-title">Share a webpage or file to spacesheep</h1>
+      <p class="muted launcher-lead">In Chrome on your phone, tap <b>Share → Share to spacesheep</b> on any page, or paste a link below.</p>
+      <form id="url-form" class="url-form">
+        <input type="url" id="url-input" placeholder="https://example.com" required autocomplete="off" spellcheck="false">
+        <button type="submit" class="primary">Share to spacesheep</button>
+      </form>
+      <div id="recent-wrap" class="recent-wrap" hidden>
+        <h2 class="recent-heading">Recently shared</h2>
+        <ul id="recent-list" class="recent-list"></ul>
+      </div>
+    </section>
+  </template>
+
+  <template id="t-ready">
+    <section class="page">
+      <div class="doc" aria-hidden="true">📄</div>
+      <div class="page-text">
+        <h1 class="title"></h1>
+        <p class="meta muted"></p>
+      </div>
+    </section>
+    <p class="notes muted" hidden></p>
+    <button type="button" class="link capture-plans" hidden>Compare plans: Free 40 · Pro 150 · Max 500</button>
+    <button type="button" class="primary" id="go"></button>
+    <button type="button" class="link center" id="as-new" hidden>Publish as a new page instead</button>
+    <p class="first muted" hidden>First time: you'll approve the connection on spacesheep.dev, once.</p>
+  </template>
+
+  <template id="t-working">
+    <section class="page">
+      <div class="doc" aria-hidden="true">📄</div>
+      <div class="page-text">
+        <h1 class="title"></h1>
+        <p class="step"></p>
+      </div>
+    </section>
+    <div class="bar" role="progressbar" aria-label="Moving"><span></span></div>
+  </template>
+
+  <template id="t-done">
+    <section class="page">
+      <div class="doc ok" aria-hidden="true">✓</div>
+      <div class="page-text">
+        <h1 class="title"></h1>
+        <p class="meta muted"></p>
+      </div>
+    </section>
+    <a class="result-url" id="result-url" target="_blank" rel="noopener"></a>
+    <p class="copied-pill" id="copied-pill" hidden>✓ Link copied to clipboard</p>
+    <p class="notes muted" hidden></p>
+    <div class="row">
+      <button type="button" class="primary" id="open">Open it</button>
+      <button type="button" class="secondary" id="copy">Copy link</button>
+    </div>
+    <button type="button" class="link center" id="as-new-after" hidden>Publish as a new page instead</button>
+  </template>
+
+  <template id="t-problem">
+    <section class="problem">
+      <h1 class="title"></h1>
+      <p class="why"></p>
+      <p class="detail muted" hidden></p>
+    </section>
+    <button type="button" class="primary" id="fix" hidden></button>
+  </template>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

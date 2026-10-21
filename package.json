@@ -1,0 +1,14 @@
+{
+  "name": "share-to-spacesheep",
+  "version": "0.3.2",
+  "description": "Share webpages and files to spacesheep.dev from Android (Chrome Share sheet) and your computer",
+  "type": "module",
+  "bin": {
+    "share-to-spacesheep": "./bin/share-to-spacesheep.mjs"
+  },
+  "scripts": {
+    "build:android": "JAVA_HOME=\"/Applications/Android Studio.app/Contents/jbr/Contents/Home\" ANDROID_HOME=\"$HOME/Library/Android/sdk\" ./gradlew assembleDebug",
+    "install:android": "adb install -r app/build/outputs/apk/debug/app-debug.apk"
+  },
+  "license": "MIT"
+}
