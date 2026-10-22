@@ -113,7 +113,7 @@ public final class DomSnapshotter {
             "    var lss = cs.getAttribute('data-srcset') || cs.getAttribute('data-lazy-srcset') || '';" +
             "    if (lss && !cs.getAttribute('srcset')) cs.setAttribute('srcset', lss);" +
             "  }" +
-            "  var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, noscript');" +
+            "  var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role=\"dialog\"][aria-label*=\"Subscribe\" i], [class*=\"subscribeDialog\"], noscript');" +
             "  for (var oIdx = 0; oIdx < overlays.length; oIdx++) overlays[oIdx].remove();" +
             "  var bodyEl = root.querySelector('body');" +
             "  if (bodyEl && bodyEl.style && bodyEl.style.overflow === 'hidden') bodyEl.style.overflow = '';" +
@@ -249,7 +249,9 @@ public final class DomSnapshotter {
                     "  try {" +
                     "    var u = " + JSONObject.quote(url) + ";" +
                     "    var r;" +
-                    "    try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {}" +
+                    "    try { r = await fetch(u, { credentials: 'same-origin', cache: 'force-cache' }); } catch(e) {}" +
+                    "    if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'same-origin' }); } catch(e) {} }" +
+                    "    if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }" +
                     "    if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });" +
                     "    if (!r.ok) {" +
                     "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'HTTP ' + r.status }));" +

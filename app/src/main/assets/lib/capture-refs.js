@@ -154,16 +154,71 @@ export function rewriteDocument(doc, rewrite) {
   }
 }
 
+// Pick the single highest-resolution URL from a srcset string so a <picture> or <img srcset>
+// doesn't queue 6-8 redundant resolution/format variants per image.
+export function bestSrcsetUrl(value) {
+  if (!value || typeof value !== "string") return null;
+  let at = 0;
+  let bestUrl = null;
+  let bestScore = -1;
+  while (at < value.length) {
+    while (at < value.length && /[\s,]/.test(value[at])) at++;
+    const urlStart = at;
+    while (at < value.length && !/\s/.test(value[at])) at++;
+    const token = value.slice(urlStart, at);
+    if (!token) break;
+    const commas = token.match(/,+$/)?.[0] || "";
+    const url = (commas ? token.slice(0, -commas.length) : token).trim();
+    let desc = "";
+    if (!commas) {
+      const descriptorStart = at;
+      let depth = 0;
+      while (at < value.length) {
+        const c = value[at++];
+        if (c === "(") depth++;
+        if (c === ")") depth--;
+        if (c === "," && depth === 0) break;
+      }
+      desc = value.slice(descriptorStart, at).replace(/,\s*$/, "").trim();
+    }
+    if (!url || url === "data:," || url === "about:blank") continue;
+    let score = 1;
+    const wMatch = /(\d+(?:\.\d+)?)w/i.exec(desc);
+    const xMatch = /(\d+(?:\.\d+)?)x/i.exec(desc);
+    if (wMatch) score = parseFloat(wMatch[1]);
+    else if (xMatch) score = parseFloat(xMatch[1]) * 1000;
+    if (score >= bestScore) {
+      bestScore = score;
+      bestUrl = url;
+    }
+  }
+  return bestUrl;
+}
+
 // Removing <base> keeps local assets local. Resolve navigation first so links and
 // forms retain their destination, while fragment links still target this copy.
 export function prepareDocument(doc, base) {
   stripScripts(doc);
-  for (const el of doc.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^="sp_message_container"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container')) {
+  // Strip favicons, apple-touch-icons, and non-style preloads that aren't displayed inside
+  // the Spacesheep iframe and otherwise consume 15+ head asset slots before body images.
+  for (const el of doc.querySelectorAll(
+    'link[rel~="icon" i], link[rel~="shortcut" i], link[rel~="apple-touch-icon" i], link[rel~="apple-touch-icon-precomposed" i], link[rel~="mask-icon" i], link[rel~="preload" i]:not([as="style" i]), link[rel~="prefetch" i], link[rel~="manifest" i]'
+  )) {
+    el.remove();
+  }
+  const sheetHrefs = new Set(
+    [...doc.querySelectorAll('link[rel~="stylesheet" i][href]')].map((el) => el.getAttribute("href"))
+  );
+  for (const el of doc.querySelectorAll('link[rel~="preload" i][as="style" i]')) {
+    if (sheetHrefs.has(el.getAttribute("href"))) el.remove();
+    else el.setAttribute("rel", "stylesheet");
+  }
+  for (const el of doc.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^="sp_message_container"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role="dialog"][aria-label*="Subscribe" i], [class*="subscribeDialog"], iframe[width="0"][height="0"], iframe.channel-frame')) {
     el.remove();
   }
   for (const img of doc.querySelectorAll("img, source")) {
     const src = (img.getAttribute("src") || "").trim();
-    const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-original");
+    const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-original") || img.getAttribute("data-actualsrc");
     if (dataSrc && (!src || src.startsWith("data:"))) {
       img.setAttribute("src", dataSrc.trim());
     }
@@ -175,6 +230,35 @@ export function prepareDocument(doc, base) {
     if (img.tagName.toLowerCase() === "img") {
       img.removeAttribute("loading");
       img.removeAttribute("decoding");
+    }
+  }
+  // Collapse <picture> and <img srcset> multi-resolution variants to a single highest-res <img>
+  // so each figure uses 1 asset slot instead of 6-8 redundant width/format copies.
+  for (const pic of doc.querySelectorAll("picture")) {
+    const img = pic.querySelector("img");
+    if (!img) continue;
+    const curSrc = (img.getAttribute("src") || "").trim();
+    const bestImgSet = bestSrcsetUrl(img.getAttribute("srcset"));
+    let bestSourceSet = null;
+    for (const srcEl of pic.querySelectorAll("source[srcset]")) {
+      const candidate = bestSrcsetUrl(srcEl.getAttribute("srcset"));
+      if (candidate && !bestSourceSet) bestSourceSet = candidate;
+      srcEl.remove();
+    }
+    const chosen = bestImgSet || (curSrc && !curSrc.startsWith("data:") ? curSrc : null) || bestSourceSet || curSrc;
+    if (chosen) img.setAttribute("src", chosen);
+    img.removeAttribute("srcset");
+    img.removeAttribute("sizes");
+  }
+  for (const img of doc.querySelectorAll("img[srcset]")) {
+    const curSrc = (img.getAttribute("src") || "").trim();
+    const best = bestSrcsetUrl(img.getAttribute("srcset"));
+    if (best) {
+      img.setAttribute("src", best);
+    }
+    if (best || (curSrc && !curSrc.startsWith("data:"))) {
+      img.removeAttribute("srcset");
+      img.removeAttribute("sizes");
     }
   }
   for (const el of doc.querySelectorAll("a[href], area[href], form[action], [formaction]")) {

@@ -76,7 +76,7 @@ import UniformTypeIdentifiers
         if isShareExtension {
             let navBar = UINavigationBar()
             navBar.translatesAutoresizingMaskIntoConstraints = false
-            let navItem = UINavigationItem(title: "Spacesheep")
+            let navItem = UINavigationItem(title: "Sheep")
             navItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismissExtension))
             navBar.items = [navItem]
             view.addSubview(navBar)
@@ -189,7 +189,9 @@ import UniformTypeIdentifiers
     private func seedDefaultKeyIfNeeded() {
         var dict = loadStorageDict()
         if dict["auth"] == nil {
-            if let bundledKeyUrl = Bundle.main.url(forResource: "default_key", withExtension: "txt"),
+            let keyUrl = Bundle.main.url(forResource: "default_key", withExtension: "txt", subdirectory: "WebAssets")
+                ?? Bundle.main.url(forResource: "default_key", withExtension: "txt")
+            if let bundledKeyUrl = keyUrl,
                let key = try? String(contentsOf: bundledKeyUrl, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
                key.hasPrefix("ss_") {
                 dict["auth"] = ["kind": "key", "key": key]
@@ -671,7 +673,9 @@ import UniformTypeIdentifiers
         let jsBody = """
         try {
           var r;
-          try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {}
+          try { r = await fetch(u, { credentials: 'same-origin', cache: 'force-cache' }); } catch(e) {}
+          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'same-origin' }); } catch(e) {} }
+          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }
           if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });
           if (!r.ok) return JSON.stringify({ ok: false, error: 'HTTP ' + r.status });
           var blob = await r.blob();
@@ -857,7 +861,7 @@ import UniformTypeIdentifiers
                 }
               } catch(e) {}
             }
-            var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, noscript');
+            var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role=\"dialog\"][aria-label*=\"Subscribe\" i], [class*=\"subscribeDialog\"], noscript');
             for (var oIdx = 0; oIdx < overlays.length; oIdx++) overlays[oIdx].remove();
             var cloneBody = root.querySelector('body');
             for (var rEl of [root, cloneBody]) {

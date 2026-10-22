@@ -158,82 +158,97 @@ public final class NativeHttpClient {
             String currentUrl = targetUrl;
             int retries = 0;
             for (int redirects = 0; redirects < 8; redirects++) {
-                URL u = new URL(currentUrl);
-                conn = (HttpURLConnection) u.openConnection();
-                conn.setInstanceFollowRedirects(false);
-                conn.setConnectTimeout(15000);
-                conn.setReadTimeout(20000);
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("User-Agent", userAgent);
-                conn.setRequestProperty("Accept", "*/*");
-                conn.setRequestProperty("Accept-Encoding", "gzip, deflate, identity");
                 try {
-                    String cookie = CookieManager.getInstance().getCookie(currentUrl);
-                    if (cookie != null && !cookie.isEmpty()) {
-                        conn.setRequestProperty("Cookie", cookie);
-                    }
-                } catch (Exception ignored) {
-                }
-
-                int status = conn.getResponseCode();
-                if ((status == 429 || status == 503) && retries < 2) {
-                    conn.disconnect();
-                    retries++;
-                    redirects--;
+                    URL u = new URL(currentUrl);
+                    conn = (HttpURLConnection) u.openConnection();
+                    conn.setInstanceFollowRedirects(false);
+                    conn.setConnectTimeout(15000);
+                    conn.setReadTimeout(20000);
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("User-Agent", userAgent);
+                    conn.setRequestProperty("Accept", "*/*");
+                    conn.setRequestProperty("Accept-Encoding", "gzip, deflate, identity");
                     try {
-                        Thread.sleep(450L * retries);
-                    } catch (InterruptedException ignored) {
-                        Thread.currentThread().interrupt();
+                        String cookie = CookieManager.getInstance().getCookie(currentUrl);
+                        if (cookie != null && !cookie.isEmpty()) {
+                            conn.setRequestProperty("Cookie", cookie);
+                        }
+                    } catch (Exception ignored) {
                     }
-                    continue;
-                }
-                if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
-                    String loc = conn.getHeaderField("Location");
-                    conn.disconnect();
-                    if (loc == null) break;
-                    currentUrl = new URL(u, loc).toString();
-                    continue;
-                }
 
-                headers.put("X-Final-Url", conn.getURL().toString());
-                headers.put("X-Http-Status", String.valueOf(status));
-                String ctype = conn.getContentType();
-                if (ctype != null) headers.put("X-Orig-Type", ctype);
-
-                long contentLength = conn.getContentLengthLong();
-                if (contentLength > maxBytes) {
-                    headers.put("X-Fetch-Error", "too_big");
-                    conn.disconnect();
-                    return emptyResponse(headers);
-                }
-
-                InputStream rawStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
-                if (rawStream == null) {
-                    conn.disconnect();
-                    return emptyResponse(headers);
-                }
-                rawStream = wrapDecodedStream(rawStream, conn.getContentEncoding());
-
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                byte[] buf = new byte[16384];
-                long total = 0;
-                int r;
-                while ((r = rawStream.read(buf)) != -1) {
-                    total += r;
-                    if (total > maxBytes) {
-                        rawStream.close();
+                    int status = conn.getResponseCode();
+                    if ((status == 429 || status == 502 || status == 503 || status == 504) && retries < 2) {
                         conn.disconnect();
+                        retries++;
+                        redirects--;
+                        try {
+                            Thread.sleep(350L * retries);
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                        continue;
+                    }
+                    if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
+                        String loc = conn.getHeaderField("Location");
+                        conn.disconnect();
+                        if (loc == null) break;
+                        currentUrl = new URL(u, loc).toString();
+                        continue;
+                    }
+
+                    headers.put("X-Final-Url", conn.getURL().toString());
+                    headers.put("X-Http-Status", String.valueOf(status));
+                    String ctype = conn.getContentType();
+                    if (ctype != null) headers.put("X-Orig-Type", ctype);
+
+                    long contentLength = conn.getContentLengthLong();
+                    if (contentLength > maxBytes) {
                         headers.put("X-Fetch-Error", "too_big");
+                        conn.disconnect();
                         return emptyResponse(headers);
                     }
-                    bos.write(buf, 0, r);
-                }
-                rawStream.close();
-                conn.disconnect();
 
-                String cleanMime = ctype != null ? ctype.split(";")[0].trim() : "application/octet-stream";
-                return new WebResourceResponse(cleanMime, null, 200, "OK", headers,
-                        new ByteArrayInputStream(bos.toByteArray()));
+                    InputStream rawStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
+                    if (rawStream == null) {
+                        conn.disconnect();
+                        return emptyResponse(headers);
+                    }
+                    rawStream = wrapDecodedStream(rawStream, conn.getContentEncoding());
+
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    byte[] buf = new byte[16384];
+                    long total = 0;
+                    int r;
+                    while ((r = rawStream.read(buf)) != -1) {
+                        total += r;
+                        if (total > maxBytes) {
+                            rawStream.close();
+                            conn.disconnect();
+                            headers.put("X-Fetch-Error", "too_big");
+                            return emptyResponse(headers);
+                        }
+                        bos.write(buf, 0, r);
+                    }
+                    rawStream.close();
+                    conn.disconnect();
+
+                    String cleanMime = ctype != null ? ctype.split(";")[0].trim() : "application/octet-stream";
+                    return new WebResourceResponse(cleanMime, null, 200, "OK", headers,
+                            new ByteArrayInputStream(bos.toByteArray()));
+                } catch (Exception stepErr) {
+                    if (conn != null) conn.disconnect();
+                    if (retries < 2) {
+                        retries++;
+                        redirects--;
+                        try {
+                            Thread.sleep(300L * retries);
+                        } catch (InterruptedException ignored) {
+                            Thread.currentThread().interrupt();
+                        }
+                        continue;
+                    }
+                    throw stepErr;
+                }
             }
             headers.put("X-Fetch-Error", "too_many_redirects");
         } catch (Exception e) {

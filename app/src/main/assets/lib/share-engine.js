@@ -17,7 +17,7 @@ export const LIMITS = {
   mainBytes: 500 * 1024 * 1024,
 };
 
-const INLINE_BYTES = 1.5 * 1024 * 1024;
+const INLINE_BYTES = 8 * 1024 * 1024;
 const MOVED_KEEP = 300;
 const EMOJI = {
   page: "📄",
@@ -426,7 +426,7 @@ async function stageFiles(begin, files, onProgress) {
       onProgress({ step: "uploading", done, of: files.length });
     }
   };
-  await Promise.all(Array.from({ length: Math.min(6, files.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(12, files.length) }, worker));
   return out;
 }
 
@@ -441,12 +441,20 @@ export async function publishPage(page, { uuid = null, visibility = null, rememb
   const mcp = new Mcp();
 
   if (page.capture) {
-    const current = capturePolicy(await mcp.call("get_capture_limits"));
-    if (current.max_assets < page.files.length - 1) {
-      throw Object.assign(
-        new Error(`Your ${current.plan} plan allows ${current.max_assets} assets per page.`),
-        { code: "plan_changed" }
-      );
+    try {
+      const current = capturePolicy(await mcp.call("get_capture_limits"));
+      await extension.storage.local.set({ cachedPolicy: current });
+      if (page.sourceUrl && page.skipped?.overLimit > 0 && current.max_assets > (page.capture.limit || 0)) {
+        const recaptured = await readSharedUrl(page.sourceUrl, page.title, () => {}, current);
+        Object.assign(page, recaptured);
+      } else if (current.max_assets < page.files.length - 1) {
+        throw Object.assign(
+          new Error(`Your ${current.plan} plan allows ${current.max_assets} assets per page.`),
+          { code: "plan_changed" }
+        );
+      }
+    } catch (e) {
+      if (e && e.code === "plan_changed") throw e;
     }
   }
 
@@ -469,7 +477,7 @@ export async function publishPage(page, { uuid = null, visibility = null, rememb
   onProgress({ step: "publishing", title: page.title });
   const args = {
     files,
-    version_name: `${uuid ? "Updated" : "Moved"} from Spacesheep`,
+    version_name: `${uuid ? "Updated" : "Moved"} from Sheep`,
   };
   if (uuid) {
     args.uuid = uuid;

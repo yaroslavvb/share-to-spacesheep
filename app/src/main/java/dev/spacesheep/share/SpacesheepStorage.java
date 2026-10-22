@@ -22,6 +22,27 @@ public final class SpacesheepStorage {
 
     public SpacesheepStorage(Context context) {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        seedDefaultKeyIfNeeded(context.getApplicationContext());
+    }
+
+    private synchronized void seedDefaultKeyIfNeeded(Context appContext) {
+        try {
+            JSONObject root = new JSONObject(prefs.getString(PREFS_KEY_JSON, "{}"));
+            if (!root.has("auth")) {
+                try (java.io.InputStream is = appContext.getAssets().open("default_key.txt")) {
+                    byte[] bytes = new byte[256];
+                    int n = is.read(bytes);
+                    if (n > 0) {
+                        String key = new String(bytes, 0, n, java.nio.charset.StandardCharsets.UTF_8).trim();
+                        if (key.startsWith("ss_")) {
+                            saveKeyDirectly(key, "yaroslavvb");
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     public synchronized String getAllJson() {

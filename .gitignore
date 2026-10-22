@@ -14,3 +14,4 @@ ios/DerivedData/
 *.aab
 ios/*.xcodeproj/project.xcworkspace/
 ios/*.xcodeproj/xcuserdata/
+**/default_key.txt

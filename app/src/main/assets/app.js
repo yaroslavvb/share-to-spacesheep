@@ -490,10 +490,12 @@ export async function processShare(payload) {
 
     let page;
     if (mode === "url") {
-      let policy = FREE_CAPTURE;
+      const { cachedPolicy } = await extension.storage.local.get("cachedPolicy");
+      let policy = (cachedPolicy && cachedPolicy.max_assets) ? cachedPolicy : FREE_CAPTURE;
       if (await isConnected()) {
         try {
           policy = capturePolicy(await new Mcp().call("get_capture_limits"));
+          await extension.storage.local.set({ cachedPolicy: policy });
         } catch {}
       }
       page = await readSharedUrl(url, payload.title || "", onStep, policy);
