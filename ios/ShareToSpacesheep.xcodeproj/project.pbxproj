@@ -256,8 +256,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.spacesheep.share.ios;
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -275,8 +275,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.spacesheep.share.ios;
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -295,8 +295,8 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.spacesheep.share.ios.ShareExtension;
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
@@ -316,8 +316,8 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.3.0;
-				PRODUCT_BUNDLE_IDENTIFIER = dev.spacesheep.share.ios.ShareExtension;
+				MARKETING_VERSION = 0.6.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;

@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
     private var pendingSnapshotId: Int = 0
     private var captureTimeoutWorkItem: DispatchWorkItem?
 
-    private static let appGroupSuite = "group.dev.spacesheep.share"
+    private static let appGroupSuite = "group.com.yaroslavvb.sheepit"
     private static let storageDictKey = "spacesheep_storage_dict_v1"
 
     private var prefs: UserDefaults {

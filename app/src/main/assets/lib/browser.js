@@ -16,13 +16,13 @@ function readAllStorage() {
 
 export const extension = {
   runtime: {
-    id: "dev.spacesheep.share",
+    id: "com.yaroslavvb.sheepit",
     getURL(path = "") {
       const clean = String(path).replace(/^\/+/, "");
       return `https://appassets.spacesheep.invalid/${clean}`;
     },
     getManifest() {
-      return { version: "0.3.2" };
+      return { version: "0.6.1" };
     },
   },
   storage: {

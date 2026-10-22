@@ -1,0 +1,3 @@
+• Package ID set to com.yaroslavvb.sheepit for Google Play Store.
+• Renamed app to SheepIt across Android, iPhone, and iPad.
+• ~1-second fast share pipeline (50x–60x speedup on multi-asset technical pages).

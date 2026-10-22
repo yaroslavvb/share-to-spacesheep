@@ -92,7 +92,7 @@ public final class OAuthLoopbackServer {
                         }
 
                         callbackUrl = "http://127.0.0.1:" + serverSocket.getLocalPort() + path;
-                        String intentUrl = "intent://oauth#Intent;scheme=spacesheep-share;package=dev.spacesheep.share;end";
+                        String intentUrl = "intent://oauth#Intent;scheme=spacesheep-share;package=com.yaroslavvb.sheepit;end";
                         String html = "<!doctype html><html><head><meta charset='utf-8'>" +
                                 "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
                                 "<title>Connected to Spacesheep</title>" +
