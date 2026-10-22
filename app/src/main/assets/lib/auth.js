@@ -5,7 +5,7 @@ import { nativeFetch, prepareLoopbackOAuth, waitForLoopbackOAuth } from "./nativ
 
 export const SERVER = "https://mcp.spacesheep.dev";
 export const APP_SERVER = "https://spacesheep.dev";
-export const CLIENT_NAME = "Share to spacesheep";
+export const CLIENT_NAME = "Spacesheep";
 
 export class AuthError extends Error {
   constructor(code, message) {

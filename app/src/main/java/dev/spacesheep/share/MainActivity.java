@@ -773,7 +773,7 @@ public class MainActivity extends Activity {
                                 "<meta name='viewport' content='width=device-width,initial-scale=1'>" +
                                 "<title>Connected to spacesheep</title></head>" +
                                 "<body style='font:16px system-ui;padding:32px;text-align:center'>" +
-                                "<h2>Connected to spacesheep</h2><p>Returning to Share to spacesheep…</p>" +
+                                "<h2>Connected to Spacesheep</h2><p>Returning to Spacesheep…</p>" +
                                 "<script>location.replace('intent://oauth#Intent;scheme=spacesheep-share;package=dev.spacesheep.share;end');</script>" +
                                 "</body></html>";
                         byte[] bodyBytes = html.getBytes(StandardCharsets.UTF_8);

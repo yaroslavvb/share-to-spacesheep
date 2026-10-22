@@ -120,7 +120,7 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   const main = await fetchBinaryUrl(url, LIMITS.mainBytes);
   if (!main || !main.bytes) {
     if (main && main.error === "too_big") {
-      throw new ReadError("too_big", "This file is over 500 MB, more than Share to spacesheep reads.");
+      throw new ReadError("too_big", "This file is over 500 MB, more than Spacesheep reads.");
     }
     throw new ReadError("offline", (main && main.error) || "Couldn't load this address.");
   }
@@ -385,7 +385,7 @@ export async function publishPage(page, { uuid = null, visibility = null, rememb
   onProgress({ step: "publishing", title: page.title });
   const args = {
     files,
-    version_name: `${uuid ? "Updated" : "Moved"} from Share to spacesheep`,
+    version_name: `${uuid ? "Updated" : "Moved"} from Spacesheep`,
   };
   if (uuid) {
     args.uuid = uuid;
