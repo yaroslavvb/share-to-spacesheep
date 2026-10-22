@@ -11,14 +11,14 @@ Built on the open-source capture, viewer, plan-checking, and MCP publishing modu
 ## Download & Install
 
 ### Android (Phone / Tablet)
-1. **Direct APK Download:** Download the latest [`spacesheep-v0.2.0.apk`](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases) and open it on your Android phone.
+1. **Direct APK Download:** Download the latest [`spacesheep-v0.3.0.apk`](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases) and open it on your Android phone.
 2. **Auto-updates via Obtainium:** Add `https://github.com/yaroslavvb/share-to-spacesheep` to [Obtainium](https://github.com/ImranR98/Obtainium) on Android to receive one-tap updates whenever a new release is tagged.
 3. **First-time sign-in:** Open **Spacesheep** once to sign in with your `spacesheep.dev` account (or paste a `ss_…` API key from `spacesheep.dev/settings/api-keys`).
 4. **Share from Chrome:** Open any webpage in Chrome on Android, tap **Share… → Spacesheep**.
 
 ### iPhone & iPad (iOS / iPadOS 16+)
 The iPhone/iPad app ([`ios/ShareToSpacesheep.xcodeproj`](ios/ShareToSpacesheep.xcodeproj)) includes both the standalone **Spacesheep** app (`dev.spacesheep.share.ios`) and a native **iOS/iPadOS Share Extension** (`dev.spacesheep.share.ios.ShareExtension`) that appears as **Spacesheep** directly in the Chrome, Safari, and Files share sheet.
-1. **Install via Sideloadly / AltStore / SideStore / TrollStore:** Download [`spacesheep-v0.2.0.ipa`](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases) and install it onto your iPhone or iPad using [Sideloadly](https://sideloadly.io), [AltStore](https://altstore.io), or [SideStore](https://sidestore.io) (signs automatically with your free Apple ID).
+1. **Install via Sideloadly / AltStore / SideStore / TrollStore:** Download [`spacesheep-v0.3.0.ipa`](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases) and install it onto your iPhone or iPad using [Sideloadly](https://sideloadly.io), [AltStore](https://altstore.io), or [SideStore](https://sidestore.io) (signs automatically with your free Apple ID).
 2. **Or Install Directly from Xcode:** Open `ios/ShareToSpacesheep.xcodeproj` in Xcode, select your Apple ID team under **Signing & Capabilities**, pick your connected iPhone or iPad, and press **Run (⌘R)**.
 3. **Share from Chrome or Safari on iPad/iPhone:** Open any page in Chrome or Safari, tap the **Share** button, and tap **Spacesheep** in the share sheet.
 
