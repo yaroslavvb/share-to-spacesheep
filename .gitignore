@@ -10,3 +10,7 @@ node_modules/
 *.jks
 ios/build/
 ios/DerivedData/
+
+*.aab
+ios/*.xcodeproj/project.xcworkspace/
+ios/*.xcodeproj/xcuserdata/
