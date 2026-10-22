@@ -4,8 +4,10 @@
 let nextReqId = 1;
 const pendingHttp = new Map();
 const pendingSnapshot = new Map();
+const pendingSnapshotAsset = new Map();
 const pendingOAuth = new Map();
 let pendingPickedFiles = null;
+let snapshotWebViewActive = false;
 
 if (typeof window !== "undefined") {
   window.__onHttpResponse = (res) => {
@@ -20,6 +22,13 @@ if (typeof window !== "undefined") {
     const p = pendingSnapshot.get(res.id);
     if (!p) return;
     pendingSnapshot.delete(res.id);
+    p.resolve(res);
+  };
+
+  window.__onSnapshotAssetResponse = (res) => {
+    const p = pendingSnapshotAsset.get(res.id);
+    if (!p) return;
+    pendingSnapshotAsset.delete(res.id);
     p.resolve(res);
   };
 
@@ -146,9 +155,21 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
     const proxyUrl = `https://appassets.spacesheep.invalid/__fetch?url=${encodeURIComponent(url)}&maxBytes=${Number(maxBytes)}`;
     const r = await fetch(proxyUrl);
     const err = r.headers.get("x-fetch-error");
-    if (err) return { url, error: err };
+    if (err) {
+      if (snapshotWebViewActive) {
+        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
+        if (viaWv && viaWv.bytes) return viaWv;
+      }
+      return { url, error: err };
+    }
     const status = Number(r.headers.get("x-http-status") || r.status);
-    if (status < 200 || status >= 300) return { url, error: `HTTP ${status}` };
+    if (status < 200 || status >= 300) {
+      if (snapshotWebViewActive) {
+        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
+        if (viaWv && viaWv.bytes) return viaWv;
+      }
+      return { url, error: `HTTP ${status}` };
+    }
     const bytes = new Uint8Array(await r.arrayBuffer());
     if (bytes.length > maxBytes) return { url, error: "too_big" };
     return {
@@ -158,8 +179,48 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
       type: r.headers.get("x-orig-type") || r.headers.get("content-type") || "",
     };
   } catch (e) {
+    if (snapshotWebViewActive) {
+      const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
+      if (viaWv && viaWv.bytes) return viaWv;
+    }
     return { url, error: String(e.message || e) };
   }
+}
+
+async function fetchViaSnapshotWebView(url, maxBytes = 25 * 1024 * 1024) {
+  if (!hasAndroidBridge() || !window.AndroidBridge.fetchSnapshotAsset) {
+    return null;
+  }
+  const id = nextReqId++;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      pendingSnapshotAsset.delete(id);
+      resolve(null);
+    }, 10000);
+    pendingSnapshotAsset.set(id, {
+      resolve: (res) => {
+        clearTimeout(timer);
+        if (!res || !res.ok || !res.base64) {
+          resolve(res && res.error === "too_big" ? { url, error: "too_big" } : null);
+          return;
+        }
+        try {
+          const bin = atob(res.base64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          resolve({
+            url,
+            finalUrl: res.finalUrl || url,
+            bytes,
+            type: res.contentType || "",
+          });
+        } catch {
+          resolve(null);
+        }
+      },
+    });
+    window.AndroidBridge.fetchSnapshotAsset(id, url, Number(maxBytes));
+  });
 }
 
 /**
@@ -179,11 +240,21 @@ export async function renderPageDom(url, timeoutMs = 5500) {
     pendingSnapshot.set(id, {
       resolve: (res) => {
         clearTimeout(timer);
+        if (res && res.ok) snapshotWebViewActive = true;
         resolve(res || { ok: false });
       },
     });
     window.AndroidBridge.renderPageSnapshot(id, url, timeoutMs);
   });
+}
+
+export function resetSnapshotWebView() {
+  snapshotWebViewActive = false;
+  if (hasAndroidBridge() && window.AndroidBridge.resetPageSnapshot) {
+    try {
+      window.AndroidBridge.resetPageSnapshot();
+    } catch {}
+  }
 }
 
 /**

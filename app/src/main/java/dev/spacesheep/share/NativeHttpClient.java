@@ -28,7 +28,7 @@ import java.util.zip.InflaterInputStream;
  * and cross-origin webpage/asset fetching.
  */
 public final class NativeHttpClient {
-    public static final String USER_AGENT =
+    public static final String DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 15; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36";
 
     public interface ResponseCallback {
@@ -36,6 +36,15 @@ public final class NativeHttpClient {
     }
 
     private final ExecutorService httpPool = Executors.newFixedThreadPool(8);
+    private final String userAgent;
+
+    public NativeHttpClient(String userAgent) {
+        this.userAgent = (userAgent != null && !userAgent.isEmpty()) ? userAgent : DEFAULT_USER_AGENT;
+    }
+
+    public String getUserAgent() {
+        return userAgent;
+    }
 
     public ExecutorService getExecutor() {
         return httpPool;
@@ -59,7 +68,7 @@ public final class NativeHttpClient {
                 conn.setConnectTimeout(20000);
                 conn.setReadTimeout(45000);
                 conn.setRequestMethod(method != null ? method : "GET");
-                conn.setRequestProperty("User-Agent", USER_AGENT);
+                conn.setRequestProperty("User-Agent", userAgent);
                 conn.setRequestProperty("Accept-Encoding", "gzip, deflate, identity");
 
                 if (headersJson != null && !headersJson.isEmpty()) {
@@ -154,7 +163,7 @@ public final class NativeHttpClient {
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(20000);
                 conn.setRequestMethod("GET");
-                conn.setRequestProperty("User-Agent", USER_AGENT);
+                conn.setRequestProperty("User-Agent", userAgent);
                 conn.setRequestProperty("Accept", "*/*");
                 conn.setRequestProperty("Accept-Encoding", "gzip, deflate, identity");
                 try {

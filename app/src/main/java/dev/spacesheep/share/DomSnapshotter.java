@@ -18,6 +18,7 @@ import org.json.JSONTokener;
 public final class DomSnapshotter {
     public interface SnapshotCallback {
         void onSnapshotReady(JSONObject result);
+        void onAssetReady(JSONObject result);
     }
 
     private static final String SNAPSHOT_JS = "(function(){" +
@@ -64,6 +65,7 @@ public final class DomSnapshotter {
     private final WebView webView;
     private final Handler mainHandler;
     private final SnapshotCallback callback;
+    private final String userAgent;
 
     private int activeId = 0;
     private Runnable timeoutTask = null;
@@ -85,24 +87,66 @@ public final class DomSnapshotter {
         s.setAllowContentAccess(true);
         s.setMediaPlaybackRequiresUserGesture(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        s.setUserAgentString(NativeHttpClient.USER_AGENT);
+        String defaultUa = s.getUserAgentString();
+        if (defaultUa != null && !defaultUa.isEmpty()) {
+            this.userAgent = defaultUa.replace("; wv)", ")").replace("Version/4.0 ", "");
+        } else {
+            this.userAgent = NativeHttpClient.DEFAULT_USER_AGENT;
+        }
+        s.setUserAgentString(this.userAgent);
+
+        this.webView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void onAssetFetched(int id, String json) {
+                try {
+                    JSONObject obj = new JSONObject(json != null ? json : "{}");
+                    obj.put("id", id);
+                    callback.onAssetReady(obj);
+                } catch (Exception e) {
+                    try {
+                        JSONObject err = new JSONObject();
+                        err.put("id", id);
+                        err.put("ok", false);
+                        err.put("error", e.toString());
+                        callback.onAssetReady(err);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }, "AndroidSnapshotBridge");
 
         this.webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 final int snapId = activeId;
                 if (snapId <= 0 || "about:blank".equals(url)) return;
-                if (settleTask != null) {
-                    mainHandler.removeCallbacks(settleTask);
-                }
-                settleTask = () -> {
-                    if (activeId == snapId) {
-                        extractSnapshot(snapId);
-                    }
-                };
-                mainHandler.postDelayed(settleTask, 650);
+                scheduleCheckOrExtract(snapId, 750);
             }
         });
+    }
+
+    public String getUserAgent() {
+        return userAgent;
+    }
+
+    private void scheduleCheckOrExtract(final int snapId, final long delayMs) {
+        if (settleTask != null) {
+            mainHandler.removeCallbacks(settleTask);
+        }
+        settleTask = () -> {
+            if (activeId != snapId) return;
+            webView.evaluateJavascript(
+                    "(function(){ return !!(document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')); })()",
+                    val -> {
+                        if (activeId != snapId) return;
+                        if ("true".equals(val)) {
+                            scheduleCheckOrExtract(snapId, 900);
+                        } else {
+                            extractSnapshot(snapId);
+                        }
+                    });
+        };
+        mainHandler.postDelayed(settleTask, delayMs);
     }
 
     public WebView getWebView() {
@@ -124,10 +168,67 @@ public final class DomSnapshotter {
         });
     }
 
+    public void fetchAsset(final int id, final String url, final long maxBytes) {
+        mainHandler.post(() -> {
+            String js = "(async function() {" +
+                    "  try {" +
+                    "    var u = " + JSONObject.quote(url) + ";" +
+                    "    var r;" +
+                    "    try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {}" +
+                    "    if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });" +
+                    "    if (!r.ok) {" +
+                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'HTTP ' + r.status }));" +
+                    "      return;" +
+                    "    }" +
+                    "    var blob = await r.blob();" +
+                    "    if (blob.size > " + maxBytes + ") {" +
+                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'too_big' }));" +
+                    "      return;" +
+                    "    }" +
+                    "    var b64 = await new Promise(function(resolve, reject) {" +
+                    "      var reader = new FileReader();" +
+                    "      reader.onloadend = function() {" +
+                    "        var res = String(reader.result || '');" +
+                    "        var idx = res.indexOf(',');" +
+                    "        resolve(idx >= 0 ? res.slice(idx + 1) : '');" +
+                    "      };" +
+                    "      reader.onerror = reject;" +
+                    "      reader.readAsDataURL(blob);" +
+                    "    });" +
+                    "    window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({" +
+                    "      ok: true," +
+                    "      base64: b64," +
+                    "      contentType: blob.type || r.headers.get('content-type') || ''," +
+                    "      finalUrl: r.url || u" +
+                    "    }));" +
+                    "  } catch (err) {" +
+                    "    window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: String(err && err.message || err) }));" +
+                    "  }" +
+                    "})()";
+            webView.evaluateJavascript(js, null);
+        });
+    }
+
+    public void resetToBlank() {
+        mainHandler.post(() -> {
+            cancelPendingCallbacks();
+            activeId = 0;
+            try {
+                webView.stopLoading();
+                webView.loadUrl("about:blank");
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
     private void extractSnapshot(final int snapId) {
         if (activeId != snapId) return;
         activeId = 0;
         cancelPendingCallbacks();
+        try {
+            android.webkit.CookieManager.getInstance().flush();
+        } catch (Exception ignored) {
+        }
 
         webView.evaluateJavascript(SNAPSHOT_JS, value -> {
             JSONObject res = new JSONObject();
@@ -144,9 +245,6 @@ public final class DomSnapshotter {
                 } catch (Exception ignored) {
                 }
             }
-            // Reset offscreen WebView so background scripts/timers don't keep running
-            webView.stopLoading();
-            webView.loadUrl("about:blank");
             callback.onSnapshotReady(res);
         });
     }
@@ -165,6 +263,9 @@ public final class DomSnapshotter {
     public void destroy() {
         cancelPendingCallbacks();
         try {
+            if (webView.getParent() instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) webView.getParent()).removeView(webView);
+            }
             webView.stopLoading();
             webView.destroy();
         } catch (Exception ignored) {

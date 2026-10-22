@@ -8,7 +8,7 @@ import { kindOf, titleFromName } from "./kinds.js";
 import { fileName } from "./refs.js";
 import { buildSingle, buildMany } from "./build.js";
 import { captureWeb } from "./capture.js";
-import { fetchBinaryUrl, nativeFetch, renderPageDom } from "./native-http.js";
+import { fetchBinaryUrl, nativeFetch, renderPageDom, resetSnapshotWebView } from "./native-http.js";
 
 export const LIMITS = {
   files: 1000,
@@ -150,42 +150,75 @@ function cleanSpacesheepArtifacts(doc) {
 export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {}, policy = null) {
   onStep("page");
   const main = await fetchBinaryUrl(url, LIMITS.mainBytes);
+  let finalUrl = (main && main.finalUrl) || url;
+  let html = "";
+  let doc = null;
+  let captureBaseUrl = finalUrl;
+  let derivedTitle = "";
+  let alreadyRenderedInWebView = false;
+
   if (!main || !main.bytes) {
     if (main && main.error === "too_big") {
       throw new ReadError("too_big", "This file is over 500 MB, more than Spacesheep reads.");
     }
-    throw new ReadError("offline", (main && main.error) || "Couldn't load this address.");
+    // Many Cloudflare-protected sites return HTTP 403/503 to HttpURLConnection
+    // but load cleanly in the real Chromium WebView (renderPageDom).
+    const fallbackRender = await renderPageDom(url, 8000);
+    const fallbackUrl = String((fallbackRender && fallbackRender.finalUrl) || "");
+    if (
+      fallbackRender &&
+      fallbackRender.ok &&
+      fallbackRender.html &&
+      !fallbackUrl.startsWith("chrome-error:") &&
+      !fallbackUrl.startsWith("about:")
+    ) {
+      const renderedDoc = new DOMParser().parseFromString(fallbackRender.html, "text/html");
+      const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
+      if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
+        doc = renderedDoc;
+        cleanSpacesheepArtifacts(doc);
+        finalUrl = fallbackUrl || url;
+        captureBaseUrl = finalUrl;
+        alreadyRenderedInWebView = true;
+        if (fallbackRender.title) {
+          derivedTitle = fallbackRender.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
+        }
+      }
+    }
+    if (!doc) {
+      throw new ReadError(
+        "page_unreachable",
+        `Couldn't load ${ url } (${ (main && main.error) || "connection failed" }).`
+      );
+    }
+  } else {
+    const rawType = (main.type || "").split(";")[0].trim().toLowerCase();
+    const kind = kindOf(rawType, fileName(finalUrl));
+
+    // Non-HTML file (image, PDF, video, audio, Markdown, CSV, JSON, text, archive)
+    if (kind !== "page") {
+      onStep("file");
+      const name = fileName(finalUrl) || new URL(finalUrl).hostname;
+      const blob = new Blob([main.bytes], { type: rawType || "application/octet-stream" });
+      const built = await buildSingle({ name, type: rawType, blob, title: suggestedTitle || undefined }, onStep);
+      return {
+        title: built.title,
+        kind: built.kind,
+        note: built.note,
+        sourceUrl: finalUrl,
+        name,
+        isFile: false,
+        size: blob.size,
+        files: built.files,
+        skipped: { outside: 0, missing: 0, tooBig: 0, overLimit: 0 },
+        snapshot: false,
+        bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
+      };
+    }
+
+    html = decodeHtml(main.bytes, main.type);
+    doc = new DOMParser().parseFromString(html, "text/html");
   }
-
-  const finalUrl = main.finalUrl || url;
-  const rawType = (main.type || "").split(";")[0].trim().toLowerCase();
-  const kind = kindOf(rawType, fileName(finalUrl));
-
-  // Non-HTML file (image, PDF, video, audio, Markdown, CSV, JSON, text, archive)
-  if (kind !== "page") {
-    onStep("file");
-    const name = fileName(finalUrl) || new URL(finalUrl).hostname;
-    const blob = new Blob([main.bytes], { type: rawType || "application/octet-stream" });
-    const built = await buildSingle({ name, type: rawType, blob, title: suggestedTitle || undefined }, onStep);
-    return {
-      title: built.title,
-      kind: built.kind,
-      note: built.note,
-      sourceUrl: finalUrl,
-      name,
-      isFile: false,
-      size: blob.size,
-      files: built.files,
-      skipped: { outside: 0, missing: 0, tooBig: 0, overLimit: 0 },
-      snapshot: false,
-      bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
-    };
-  }
-
-  let html = decodeHtml(main.bytes, main.type);
-  let doc = new DOMParser().parseFromString(html, "text/html");
-  let captureBaseUrl = finalUrl;
-  let derivedTitle = "";
 
   // Check if this is a spacesheep.dev viewer page wrapping an inner content iframe,
   // or a private spacesheep.dev space that redirected to /signin.
@@ -226,29 +259,36 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   }
 
   // Try live DOM rendering in the offscreen WebView so client-side JS and canvases render
-  const rendered = await renderPageDom(captureBaseUrl, 4500);
-  const renderedUrl = String((rendered && rendered.finalUrl) || "");
-  if (
-    rendered &&
-    rendered.ok &&
-    rendered.html &&
-    !renderedUrl.startsWith("chrome-error:") &&
-    !renderedUrl.startsWith("about:")
-  ) {
-    const renderedDoc = new DOMParser().parseFromString(rendered.html, "text/html");
-    const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
-    if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
-      doc = renderedDoc;
-      cleanSpacesheepArtifacts(doc);
-      if (!derivedTitle && rendered.title) {
-        derivedTitle = rendered.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
+  if (!alreadyRenderedInWebView) {
+    const rendered = await renderPageDom(captureBaseUrl, 4500);
+    const renderedUrl = String((rendered && rendered.finalUrl) || "");
+    if (
+      rendered &&
+      rendered.ok &&
+      rendered.html &&
+      !renderedUrl.startsWith("chrome-error:") &&
+      !renderedUrl.startsWith("about:")
+    ) {
+      const renderedDoc = new DOMParser().parseFromString(rendered.html, "text/html");
+      const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
+      if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
+        doc = renderedDoc;
+        cleanSpacesheepArtifacts(doc);
+        if (!derivedTitle && rendered.title) {
+          derivedTitle = rendered.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
+        }
       }
     }
   }
 
   const readAssets = (urls) => Promise.all(urls.map((u) => fetchBinaryUrl(u, LIMITS.fileBytes)));
   const maxAssets = policy?.max_assets ?? LIMITS.files;
-  const captured = await captureWeb(doc, captureBaseUrl, readAssets, { ...LIMITS, files: maxAssets }, onStep);
+  let captured;
+  try {
+    captured = await captureWeb(doc, captureBaseUrl, readAssets, { ...LIMITS, files: maxAssets }, onStep);
+  } finally {
+    resetSnapshotWebView();
+  }
 
   const name = fileName(finalUrl) || new URL(finalUrl).hostname;
   const rawDocTitle = (doc.title || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();

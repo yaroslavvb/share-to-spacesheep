@@ -414,6 +414,7 @@ function renderProblem(code, message, { retry } = {}) {
     denied: "The connection wasn't approved",
     signed_out: "Your spacesheep connection ended",
     revoked: "Your spacesheep connection ended",
+    page_unreachable: "Couldn't read that page",
     offline: "Couldn't reach spacesheep",
     unreachable: "Couldn't reach spacesheep",
     invalid_key: "That API key wasn't valid",

@@ -70,7 +70,18 @@ public class MainActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         storage = new SpacesheepStorage(this);
-        httpClient = new NativeHttpClient();
+        snapshotter = new DomSnapshotter(this, mainHandler, new DomSnapshotter.SnapshotCallback() {
+            @Override
+            public void onSnapshotReady(JSONObject res) {
+                evalJs("window.__onSnapshotResponse && window.__onSnapshotResponse(" + res.toString() + ");");
+            }
+
+            @Override
+            public void onAssetReady(JSONObject res) {
+                evalJs("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(" + res.toString() + ");");
+            }
+        });
+        httpClient = new NativeHttpClient(snapshotter.getUserAgent());
         oauthServer = new OAuthLoopbackServer(httpClient.getExecutor(), new OAuthLoopbackServer.CallbackListener() {
             @Override
             public void onOAuthResult(JSONObject result) {
@@ -91,8 +102,6 @@ public class MainActivity extends Activity {
                 });
             }
         });
-        snapshotter = new DomSnapshotter(this, mainHandler,
-                res -> evalJs("window.__onSnapshotResponse && window.__onSnapshotResponse(" + res.toString() + ");"));
 
         FrameLayout root = new FrameLayout(this);
         root.setLayoutParams(new ViewGroup.LayoutParams(
@@ -139,7 +148,7 @@ public class MainActivity extends Activity {
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
-        settings.setUserAgentString(NativeHttpClient.USER_AGENT);
+        settings.setUserAgentString(httpClient.getUserAgent());
     }
 
     private void evalJs(final String script) {
@@ -200,6 +209,17 @@ public class MainActivity extends Activity {
         stopOAuthKeepAliveService();
         if (oauthServer != null) oauthServer.shutdown();
         if (snapshotter != null) snapshotter.destroy();
+        if (mainWebView != null) {
+            try {
+                if (mainWebView.getParent() instanceof ViewGroup) {
+                    ((ViewGroup) mainWebView.getParent()).removeView(mainWebView);
+                }
+                mainWebView.stopLoading();
+                mainWebView.destroy();
+            } catch (Exception ignored) {
+            }
+            mainWebView = null;
+        }
         if (httpClient != null) httpClient.shutdown();
     }
 
@@ -460,6 +480,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void renderPageSnapshot(final int id, final String url, final int timeoutMs) {
             snapshotter.startSnapshot(id, url, timeoutMs);
+        }
+
+        @JavascriptInterface
+        public void fetchSnapshotAsset(final int id, final String url, final long maxBytes) {
+            snapshotter.fetchAsset(id, url, maxBytes);
+        }
+
+        @JavascriptInterface
+        public void resetPageSnapshot() {
+            snapshotter.resetToBlank();
         }
 
         @JavascriptInterface
