@@ -85,6 +85,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
+        if (android.os.Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true);
+            setTurnScreenOn(true);
+        }
+        getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         FrameLayout root = new FrameLayout(this);
         root.setLayoutParams(new ViewGroup.LayoutParams(
@@ -188,10 +193,16 @@ public class MainActivity extends Activity {
             }
 
             String spaceUuid = intent.getStringExtra("space_uuid");
+            if (spaceUuid == null || spaceUuid.trim().isEmpty()) {
+                spaceUuid = intent.getStringExtra("dev.spacesheep.share.EXTRA_SPACE_ID");
+            }
             if (spaceUuid != null && !spaceUuid.trim().isEmpty()) {
                 payload.put("spaceUuid", spaceUuid.trim());
             }
             String visibility = intent.getStringExtra("visibility");
+            if (visibility == null || visibility.trim().isEmpty()) {
+                visibility = intent.getStringExtra("dev.spacesheep.share.EXTRA_VISIBILITY");
+            }
             if (visibility != null && !visibility.trim().isEmpty()) {
                 payload.put("visibility", visibility.trim());
             }
