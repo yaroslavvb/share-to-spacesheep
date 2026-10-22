@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace = "dev.spacesheep.share"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.yaroslavvb.sheepit"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 8
-        versionName = "0.6.2"
+        targetSdk = 37
+        versionCode = 9
+        versionName = "0.6.3"
     }
 
     signingConfigs {
