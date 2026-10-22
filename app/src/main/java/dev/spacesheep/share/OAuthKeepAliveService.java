@@ -35,16 +35,16 @@ public final class OAuthKeepAliveService extends Service {
             if (nm != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationChannel channel = new NotificationChannel(
                         CHANNEL_ID,
-                        "Spacesheep Sign-In",
+                        "SheepIt Sign-In",
                         NotificationManager.IMPORTANCE_LOW);
-                channel.setDescription("Keeps Spacesheep active while completing sign-in");
+                channel.setDescription("Keeps SheepIt active while completing sign-in");
                 nm.createNotificationChannel(channel);
             }
             Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                     ? new Notification.Builder(this, CHANNEL_ID)
                     : new Notification.Builder(this);
             Notification notification = builder
-                    .setContentTitle("Spacesheep")
+                    .setContentTitle("SheepIt")
                     .setContentText("Completing sign-in…")
                     .setSmallIcon(android.R.drawable.stat_sys_upload_done)
                     .setOngoing(true)

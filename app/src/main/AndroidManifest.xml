@@ -2,7 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:allowBackup="false"
@@ -11,11 +10,6 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.DeviceDefault.DayNight">
-
-        <service
-            android:name=".OAuthKeepAliveService"
-            android:exported="false"
-            android:foregroundServiceType="shortService" />
 
         <activity
             android:name=".MainActivity"

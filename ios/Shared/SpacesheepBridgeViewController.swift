@@ -79,7 +79,7 @@ import UniformTypeIdentifiers
         if isShareExtension {
             let navBar = UINavigationBar()
             navBar.translatesAutoresizingMaskIntoConstraints = false
-            let navItem = UINavigationItem(title: "Sheep")
+            let navItem = UINavigationItem(title: "SheepIt")
             navItem.rightBarButtonItem = UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(dismissExtension))
             navBar.items = [navItem]
             view.addSubview(navBar)

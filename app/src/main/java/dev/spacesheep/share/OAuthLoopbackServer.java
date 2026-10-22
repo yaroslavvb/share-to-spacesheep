@@ -104,8 +104,8 @@ public final class OAuthLoopbackServer {
                                 ".btn{display:inline-block;padding:12px 22px;background:#1c1917;color:#fff;" +
                                 "text-decoration:none;border-radius:10px;font-weight:600;font-size:15px;}</style></head>" +
                                 "<body><div class='card'><h2>✓ Connected to Spacesheep</h2>" +
-                                "<p>Your account is now linked. Returning to the Spacesheep app…</p>" +
-                                "<a class='btn' href='" + intentUrl + "'>Return to Spacesheep</a></div>" +
+                                "<p>Your account is now linked. Returning to SheepIt…</p>" +
+                                "<a class='btn' href='" + intentUrl + "'>Return to SheepIt</a></div>" +
                                 "<script>setTimeout(function(){location.replace('" + intentUrl + "');},150);</script>" +
                                 "</body></html>";
                         byte[] bodyBytes = html.getBytes(StandardCharsets.UTF_8);

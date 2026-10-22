@@ -107,7 +107,7 @@ async function renderFoot() {
 
 async function handleInteractiveSignIn() {
   try {
-    renderWorking({ step: "connecting", title: currentPage ? currentPage.title : "Spacesheep" });
+    renderWorking({ step: "connecting", title: currentPage ? currentPage.title : "SheepIt" });
     await signIn();
     await verifyAndLearnAccount().catch(() => {});
     await renderFoot();

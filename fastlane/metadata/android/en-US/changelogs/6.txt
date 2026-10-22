@@ -1,0 +1,3 @@
+• Renamed app to SheepIt across Android, iPhone, and iPad.
+• ~1-second fast share pipeline (50x–60x speedup on multi-asset technical pages).
+• Parallel 24-thread native asset downloading, CDN font/KaTeX preservation, and direct video streaming.

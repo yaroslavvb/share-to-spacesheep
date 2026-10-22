@@ -1,16 +1,18 @@
 {
   "name": "share-to-spacesheep",
-  "version": "0.5.0",
-  "description": "Share webpages and files to spacesheep.dev from Android, iPhone/iPad (Share Extension), and macOS",
+  "version": "0.6.0",
+  "description": "SheepIt — Upload whatever you're looking at (webpages or files) to your Spacesheep on Android, iPhone/iPad, and macOS",
   "type": "module",
   "bin": {
-    "share-to-spacesheep": "./bin/share-to-spacesheep.mjs"
+    "share-to-spacesheep": "./bin/share-to-spacesheep.mjs",
+    "sheepit": "./bin/share-to-spacesheep.mjs"
   },
   "scripts": {
-    "build:android": "JAVA_HOME=\"/Applications/Android Studio.app/Contents/jbr/Contents/Home\" ANDROID_HOME=\"$HOME/Library/Android/sdk\" ./gradlew assembleDebug",
-    "install:android": "adb install -r app/build/outputs/apk/debug/app-debug.apk",
+    "build:android": "JAVA_HOME=\"/Applications/Android Studio.app/Contents/jbr/Contents/Home\" ANDROID_HOME=\"$HOME/Library/Android/sdk\" ./gradlew assembleRelease",
+    "build:bundle": "JAVA_HOME=\"/Applications/Android Studio.app/Contents/jbr/Contents/Home\" ANDROID_HOME=\"$HOME/Library/Android/sdk\" ./gradlew bundleRelease",
+    "install:android": "adb install -r app/build/outputs/apk/release/app-release.apk",
     "build:ios-sim": "xcodebuild -project ios/ShareToSpacesheep.xcodeproj -scheme ShareToSpacesheep -configuration Debug -sdk iphonesimulator build SYMROOT=\"$PWD/ios/build\"",
-    "build:ipa": "xcodebuild -project ios/ShareToSpacesheep.xcodeproj -scheme ShareToSpacesheep -configuration Release -sdk iphoneos build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=\"\" SYMROOT=\"$PWD/ios/build\" && rm -rf /tmp/ipa_stage && mkdir -p /tmp/ipa_stage/Payload && cp -R ios/build/Release-iphoneos/ShareToSpacesheep.app /tmp/ipa_stage/Payload/ && (cd /tmp/ipa_stage && zip -qry /tmp/share-to-spacesheep-v0.1.0.ipa Payload)"
+    "build:ipa": "xcodebuild -project ios/ShareToSpacesheep.xcodeproj -scheme ShareToSpacesheep -configuration Release -sdk iphoneos build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=\"\" SYMROOT=\"$PWD/ios/build\" && rm -rf /tmp/ipa_stage && mkdir -p /tmp/ipa_stage/Payload && cp -R ios/build/Release-iphoneos/ShareToSpacesheep.app /tmp/ipa_stage/Payload/ && (cd /tmp/ipa_stage && zip -qry /tmp/sheepit-v0.6.0.ipa Payload)"
   },
   "license": "MIT"
 }

@@ -547,7 +547,7 @@ export async function publishPage(
   onProgress({ step: "publishing", title: page.title });
   const args = {
     files,
-    version_name: `${uuid ? "Updated" : "Moved"} from Sheep`,
+    version_name: `${uuid ? "Updated" : "Moved"} from SheepIt`,
   };
   if (uuid) {
     args.uuid = uuid;
@@ -675,7 +675,7 @@ export async function publishPage(
             await mcp.call("deploy", {
               uuid: spaceId,
               files: fullDeployFiles,
-              version_name: `${uuid ? "Updated" : "Moved"} from Sheep`,
+              version_name: `${uuid ? "Updated" : "Moved"} from SheepIt`,
               background: true,
             });
             deployFullMs = Date.now() - tDep2;
