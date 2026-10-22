@@ -116,6 +116,22 @@ esac
 
 
 
+# Auto-discover Android Studio JBR or Homebrew OpenJDK on macOS when JAVA_HOME is unset.
+if [ -z "$JAVA_HOME" ] && [ "$darwin" = "true" ] && ! /usr/libexec/java_home >/dev/null 2>&1 ; then
+    for candidate in \
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+        "/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home" \
+        "/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home" \
+        "/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+    do
+        if [ -x "$candidate/bin/java" ] ; then
+            JAVA_HOME="$candidate"
+            export JAVA_HOME
+            break
+        fi
+    done
+fi
+
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then

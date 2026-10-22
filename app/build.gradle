@@ -2,16 +2,91 @@ plugins {
     id("com.android.application")
 }
 
+// Automatically discover the highest installed stable Android SDK platform (floor: API 37).
+// Skips preview/canary platforms (PreviewSdkInt > 0) which Google Play Console rejects.
+def resolveLatestStableSdk = { int minFloor ->
+    if (project.hasProperty("targetSdkOverride")) {
+        return project.property("targetSdkOverride").toString().toInteger()
+    }
+    int highest = minFloor
+    try {
+        def sdkDir = null
+        def localPropsFile = rootProject.file("local.properties")
+        if (localPropsFile.exists()) {
+            def props = new Properties()
+            localPropsFile.withInputStream { props.load(it) }
+            if (props.getProperty("sdk.dir")) {
+                sdkDir = new File(props.getProperty("sdk.dir"))
+            }
+        }
+        if (sdkDir == null || !sdkDir.exists()) {
+            def envSdk = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT") ?: "${System.getProperty('user.home')}/Library/Android/sdk"
+            sdkDir = new File(envSdk)
+        }
+        def platformsDir = new File(sdkDir, "platforms")
+        if (platformsDir.exists()) {
+            platformsDir.eachDir { dir ->
+                def sourceProps = new File(dir, "source.properties")
+                if (sourceProps.exists()) {
+                    def p = new Properties()
+                    sourceProps.withInputStream { p.load(it) }
+                    def previewInt = (p.getProperty("AndroidVersion.PreviewSdkInt") ?: "0").trim()
+                    def isPreview = previewInt != "0" && previewInt != ""
+                    def apiStr = (p.getProperty("AndroidVersion.ApiLevel") ?: "").trim()
+                    if (!isPreview && apiStr.matches("\\d+(\\.\\d+)?")) {
+                        int apiMajor = apiStr.tokenize('.')[0].toInteger()
+                        if (apiMajor > highest) {
+                            highest = apiMajor
+                        }
+                    }
+                }
+            }
+        }
+    } catch (Exception ignored) {
+    }
+    return highest
+}
+
+def resolveMonotonicVersionCode = { int minCode ->
+    if (project.hasProperty("versionCodeOverride")) {
+        return project.property("versionCodeOverride").toString().toInteger()
+    }
+    try {
+        def proc = ["git", "rev-list", "--count", "HEAD"].execute(null, rootProject.projectDir)
+        proc.waitFor()
+        if (proc.exitValue() == 0) {
+            int commits = proc.in.text.trim().toInteger()
+            // Anchor so commit #20 = versionCode 9, and every subsequent commit increments monotonically.
+            return Math.max(minCode, commits - 11)
+        }
+    } catch (Exception ignored) {
+    }
+    return minCode
+}
+
+def latestStableSdk = resolveLatestStableSdk(37)
+def autoVersionCode = resolveMonotonicVersionCode(9)
+def isReleaseTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
+def includeSeedKey = project.hasProperty("seedKey") && project.property("seedKey").toString().toBoolean()
+
 android {
     namespace = "dev.spacesheep.share"
-    compileSdk = 37
+    compileSdk = latestStableSdk
 
     defaultConfig {
         applicationId = "com.yaroslavvb.sheepit"
         minSdk = 26
-        targetSdk = 37
-        versionCode = 9
+        targetSdk = latestStableSdk
+        versionCode = autoVersionCode
         versionName = "0.6.3"
+    }
+
+    androidResources {
+        // Never bundle local developer default_key.txt into Play Store release artifacts
+        // unless explicitly requested via -PseedKey=true for local device installation.
+        if (isReleaseTask && !includeSeedKey) {
+            ignoreAssetsPatterns.add("default_key.txt")
+        }
     }
 
     signingConfigs {
@@ -39,6 +114,28 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+    }
+}
+
+tasks.matching { it.name == "bundleRelease" }.configureEach {
+    doLast {
+        def aabFile = file("${buildDir}/outputs/bundle/release/app-release.aab")
+        if (aabFile.exists()) {
+            def playStoreDir = rootProject.file("play-store")
+            playStoreDir.mkdirs()
+            def vName = android.defaultConfig.versionName
+            copy {
+                from aabFile
+                into playStoreDir
+                rename { "sheepit-v${vName}.aab" }
+            }
+            copy {
+                from aabFile
+                into playStoreDir
+                rename { "sheepit-latest.aab" }
+            }
+            logger.lifecycle("Synced signed Play Store bundle (API ${latestStableSdk}, versionCode ${android.defaultConfig.versionCode}) -> play-store/sheepit-v${vName}.aab & play-store/sheepit-latest.aab")
+        }
     }
 }
 
