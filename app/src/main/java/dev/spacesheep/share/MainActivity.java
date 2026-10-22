@@ -103,6 +103,18 @@ public class MainActivity extends Activity {
         });
 
         FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFFFAF8F5);
+        root.setFitsSystemWindows(true);
+        if (Build.VERSION.SDK_INT >= 30) {
+            root.setOnApplyWindowInsetsListener((v, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.systemBars()
+                                | android.view.WindowInsets.Type.displayCutout()
+                                | android.view.WindowInsets.Type.ime());
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+                return android.view.WindowInsets.CONSUMED;
+            });
+        }
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
