@@ -6,9 +6,9 @@
 // Elements whose attribute names a file the page loads (never <a href>: a link is
 // somewhere to go, not part of the page).
 export const LOADS = [
-  ["img", "src"], ["img", "srcset"], ["source", "src"], ["source", "srcset"],
-  ["script", "src"], ["video", "src"], ["video", "poster"], ["audio", "src"],
-  ["track", "src"], ["embed", "src"], ["object", "data"], ["iframe", "src"],
+  ["img", "src"], ["img", "srcset"], ["source", "srcset"],
+  ["script", "src"], ["video", "poster"],
+  ["embed", "src"], ["object", "data"],
   ["input", "src"], ["image", "href"], ["image", "xlink:href"], ["use", "href"],
   ["use", "xlink:href"], ["feImage", "href"],
 ];

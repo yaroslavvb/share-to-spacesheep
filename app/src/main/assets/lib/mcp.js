@@ -86,7 +86,6 @@ export class Mcp {
   }
 
   async call(name, args = {}) {
-    await this._init();
     const msg = await this._post({
       jsonrpc: "2.0",
       id: this.nextId++,
@@ -112,4 +111,11 @@ export class Mcp {
     }
     return value;
   }
+}
+
+export async function warmMcpConnection() {
+  try {
+    const server = await serverOrigin();
+    await nativeFetch(`${server}/mcp`, { method: "OPTIONS" });
+  } catch {}
 }

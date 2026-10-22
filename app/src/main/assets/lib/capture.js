@@ -2,7 +2,7 @@ import { GREY_PNG } from "./capture-plan.js";
 // Package a web snapshot and its dependency graph. Files are named by source URL
 // (including query, excluding fragment), so CDN paths and image variants can't collide.
 import { isCss } from "./refs.js";
-import { assetUrl, urlKey, documentBase, prepareDocument, rewriteCss, rewriteDocument } from "./capture-refs.js";
+import { assetUrl, urlKey, documentBase, isAllowedCdnAsset, prepareDocument, rewriteCss, rewriteDocument } from "./capture-refs.js";
 
 const encoder = new TextEncoder();
 const mimeExtensions = {
@@ -92,7 +92,7 @@ export async function fetchAsset(url, maxBytes) {
 }
 
 /** read(urls) returns bytes plus MIME type and final URL after redirects. */
-export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) {
+export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}, options = {}) {
   const resources = new Map();
   const skipped = { outside: 0, missing: 0, tooBig: 0, overLimit: 0 };
   const documents = [];
@@ -102,15 +102,21 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
   const main = { path: "index.html", doc, base: documentBase(doc, pageUrl) };
   resources.set(mainKey, main);
 
-  function discover(raw, base) {
+  function discover(raw, base, kind = "asset") {
     const url = assetUrl(raw, base);
     if (!url) {
       if (/^blob:/i.test(raw.trim()) && !unavailableBlobs.has(raw)) { unavailableBlobs.add(raw); skipped.missing++; }
       return raw;
     }
     const key = urlKey(url);
+    if (isAllowedCdnAsset(url, kind)) {
+      if (!resources.has(key)) {
+        resources.set(key, { key, externalUrl: url.href });
+      }
+      return url.href;
+    }
     if (!resources.has(key)) {
-      const record = { key };
+      const record = { key, kind };
       resources.set(key, record);
       if (queue.length >= limits.files) { record.overLimit = true; skipped.overLimit++; }
       else queue.push(record);
@@ -123,7 +129,7 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
     // manifest is itself a dependency graph for an app we're not installing.
     for (const el of record.doc.querySelectorAll('link[rel~="manifest" i], link[rel~="prefetch" i]')) el.remove();
     documents.push(record);
-    rewriteDocument(record.doc, (raw) => discover(raw, record.base));
+    rewriteDocument(record.doc, (raw, kind) => discover(raw, record.base, kind));
     // srcdoc inherits its parent's base, but will live alongside its saved file.
     for (const frame of record.doc.querySelectorAll("iframe[srcdoc]")) {
       const child = { doc: new DOMParser().parseFromString(frame.getAttribute("srcdoc"), "text/html"), path: record.path, frame };
@@ -134,10 +140,9 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
 
   const queue = [];
   addDocument(main);
-  // The file/byte caps bound the graph; visited URLs terminate CSS import cycles.
-  for (let cursor = 0; cursor < queue.length;) {
-    const batch = queue.slice(cursor, cursor + 6);
-    cursor += batch.length;
+
+  async function processBatch(batch) {
+    if (!batch.length) return;
     onStep("assets", batch.length);
     const results = await read(batch.map((r) => r.key));
     for (let i = 0; i < batch.length; i++) {
@@ -153,7 +158,7 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
       const type = (result.type || "").split(";")[0].trim().toLowerCase();
       if (isCss(record.path, result.type)) {
         record.css = decode(result.bytes, result.type);
-        rewriteCss(record.css, (raw) => discover(raw, record.base));
+        rewriteCss(record.css, (raw, cssKind) => discover(raw, record.base, cssKind));
       } else if (type === "text/html" || /\.(?:html?|svg)$/i.test(record.path)) {
         record.svg = type === "image/svg+xml" || record.path.endsWith(".svg");
         record.doc = new DOMParser().parseFromString(decode(result.bytes, result.type), record.svg ? "image/svg+xml" : "text/html");
@@ -163,6 +168,32 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
     }
   }
 
+  // Wave 1: Fetch all local stylesheets first (small & fast) so CSS imports and background URLs are discovered.
+  while (true) {
+    const styleBatch = queue.filter((r) => !r.fetched && (r.kind === "stylesheet" || /\.css(?:[?#]|$)/i.test(r.key))).slice(0, 32);
+    if (!styleBatch.length) break;
+    for (const r of styleBatch) r.fetched = true;
+    await processBatch(styleBatch);
+  }
+
+  // Wave 2: Fetch all remaining leaf assets (images, local fonts, etc.) in 32-way parallel batches.
+  const hasPendingLeaves = queue.some((r) => !r.fetched);
+  let fullCapturePromise = null;
+  function runFullCapture() {
+    if (!fullCapturePromise) {
+      fullCapturePromise = (async () => {
+        while (true) {
+          const leafBatch = queue.filter((r) => !r.fetched).slice(0, 32);
+          if (!leafBatch.length) break;
+          for (const r of leafBatch) r.fetched = true;
+          await processBatch(leafBatch);
+        }
+        return finalizeFullCapture();
+      })();
+    }
+    return fullCapturePromise;
+  }
+
   function localReference(raw, record, kind) {
     const url = assetUrl(raw, record.base);
     if (!url) {
@@ -170,31 +201,76 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}) 
       return /^blob:/i.test(raw.trim()) ? "data:," : raw;
     }
     const asset = resources.get(urlKey(url));
+    if (asset?.externalUrl) return asset.externalUrl;
     // Missing/oversize files stay visibly missing, as reported by the popup;
     // never silently hotlink them back to the source site.
     if (!asset?.path) return asset?.overLimit && kind === "image" ? GREY_PNG : "data:,";
     const prefix = record.path === "index.html" ? "./" : "../";
     return `${prefix}${asset.path}${url.hash}`;
   }
-  // Children first: serialize srcdoc only after all its own URLs are rewritten.
-  for (const record of [...documents].reverse()) {
-    rewriteDocument(record.doc, (raw, kind) => localReference(raw, record, kind));
-    if (record.frame) record.frame.setAttribute("srcdoc", serialize(record.doc));
-  }
-  const files = [];
-  for (const record of resources.values()) {
-    if (!record.path) continue;
-    let bytes = record.bytes;
-    if (record.doc) bytes = encoder.encode(serialize(record.doc, record.svg));
-    else if (record.css !== undefined) {
-      const css = rewriteCss(record.css.replace(/^\s*@charset\s+["'][^"']+["'];/i, ""), (raw, kind) => localReference(raw, record, kind));
-      bytes = encoder.encode(css);
+
+  function fastReference(raw, record) {
+    const url = assetUrl(raw, record.base);
+    if (!url) return /^blob:/i.test(raw.trim()) ? "data:," : raw;
+    const asset = resources.get(urlKey(url));
+    if (asset?.externalUrl) return asset.externalUrl;
+    if (asset?.path && asset.css !== undefined) {
+      const prefix = record.path === "index.html" ? "./" : "../";
+      return `${prefix}${asset.path}${url.hash}`;
     }
-    files.push({ path: record.path, blob: new Blob([bytes]), html: !!record.doc && !record.svg });
+    return url.href;
   }
-  const bytes = files.reduce((n, f) => n + f.blob.size, 0);
-  if (bytes > limits.totalBytes || files.slice(1).some((f) => f.blob.size > limits.fileBytes)) {
-    throw new Error("The page and its rewritten assets exceed the capture size limits.");
+
+  function buildFastPreviewFiles() {
+    const fastDocClone = main.doc.cloneNode(true);
+    rewriteDocument(fastDocClone, (raw) => fastReference(raw, main));
+    const mainBytes = encoder.encode(serialize(fastDocClone, main.svg));
+    const fastFiles = [{ path: "index.html", blob: new Blob([mainBytes]), html: true }];
+    for (const record of resources.values()) {
+      if (!record.path || record.css === undefined) continue;
+      const css = rewriteCss(record.css.replace(/^\s*@charset\s+["'][^"']+["'];/i, ""), (raw) => fastReference(raw, record));
+      fastFiles.push({ path: record.path, blob: new Blob([encoder.encode(css)]), html: false });
+    }
+    return fastFiles;
   }
-  return { files, skipped, bytes };
+
+  function finalizeFullCapture() {
+    // Children first: serialize srcdoc only after all its own URLs are rewritten.
+    for (const record of [...documents].reverse()) {
+      rewriteDocument(record.doc, (raw, kind) => localReference(raw, record, kind));
+      if (record.frame) record.frame.setAttribute("srcdoc", serialize(record.doc));
+    }
+    const files = [];
+    for (const record of resources.values()) {
+      if (!record.path) continue;
+      let bytes = record.bytes;
+      if (record.doc) bytes = encoder.encode(serialize(record.doc, record.svg));
+      else if (record.css !== undefined) {
+        const css = rewriteCss(record.css.replace(/^\s*@charset\s+["'][^"']+["'];/i, ""), (raw, kind) => localReference(raw, record, kind));
+        bytes = encoder.encode(css);
+      }
+      files.push({ path: record.path, blob: new Blob([bytes]), html: !!record.doc && !record.svg });
+    }
+    const bytes = files.reduce((n, f) => n + f.blob.size, 0);
+    if (bytes > limits.totalBytes || files.slice(1).some((f) => f.blob.size > limits.fileBytes)) {
+      throw new Error("The page and its rewritten assets exceed the capture size limits.");
+    }
+    return { files, skipped, bytes };
+  }
+
+  // If leaf assets are queued, return fastFiles immediately (0ms wait)
+  // so Phase 1 deploy finishes in ~1-2s while runFullCapture() runs right after Phase 1 deploy.
+  if (options.fastBudgetMs > 0 && hasPendingLeaves) {
+    const fastFiles = buildFastPreviewFiles();
+    const fastBytes = fastFiles.reduce((n, f) => n + f.blob.size, 0);
+    return {
+      files: fastFiles,
+      fastFiles,
+      skipped: { ...skipped },
+      bytes: fastBytes,
+      runFullCapture,
+    };
+  }
+
+  return await runFullCapture();
 }

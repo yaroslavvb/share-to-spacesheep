@@ -1,7 +1,7 @@
 // Core reading, webpage capturing, file building, and spacesheep MCP publishing engine.
 import { extension } from "./browser.js";
 import { isConnected, signIn, AuthError } from "./auth.js";
-import { Mcp } from "./mcp.js";
+import { Mcp, warmMcpConnection } from "./mcp.js";
 import { capturePolicy } from "./capture-plan.js";
 import { fitToPlan } from "./plan.js";
 import { kindOf, titleFromName } from "./kinds.js";
@@ -144,12 +144,25 @@ function cleanSpacesheepArtifacts(doc) {
   }
 }
 
+function needsLiveDomRender(doc) {
+  if (!doc || !doc.body) return true;
+  if (doc.querySelector("canvas")) {
+    return true;
+  }
+  const textLen = (doc.body.textContent || "").replace(/\s+/g, " ").trim().length;
+  return textLen < 350;
+}
+
 /**
  * Read and capture a shared http(s):// URL into a space file set.
  */
 export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {}, policy = null) {
   onStep("page");
+  warmMcpConnection();
+  const t0 = Date.now();
   const main = await fetchBinaryUrl(url, LIMITS.mainBytes);
+  const fetchMainMs = Date.now() - t0;
+  let renderDomMs = 0;
   let finalUrl = (main && main.finalUrl) || url;
   let html = "";
   let doc = null;
@@ -163,7 +176,9 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
     }
     // Many Cloudflare-protected sites return HTTP 403/503 to HttpURLConnection
     // but load cleanly in the real Chromium WebView (renderPageDom).
+    const tR0 = Date.now();
     const fallbackRender = await renderPageDom(url, 12000);
+    renderDomMs += Date.now() - tR0;
     const fallbackUrl = String((fallbackRender && fallbackRender.finalUrl) || "");
     if (
       fallbackRender &&
@@ -258,9 +273,12 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
     }
   }
 
-  // Try live DOM rendering in the offscreen WebView so client-side JS and canvases render
-  if (!alreadyRenderedInWebView) {
-    const rendered = await renderPageDom(captureBaseUrl, 4500);
+  // Only run offscreen WebView rendering when the static HTML requires JS execution
+  // (e.g., client-side KaTeX/MathJax auto-render, <canvas>, or an empty SPA shell).
+  if (!alreadyRenderedInWebView && needsLiveDomRender(doc, html)) {
+    const tR1 = Date.now();
+    const rendered = await renderPageDom(captureBaseUrl, 3000);
+    renderDomMs += Date.now() - tR1;
     const renderedUrl = String((rendered && rendered.finalUrl) || "");
     if (
       rendered &&
@@ -288,9 +306,25 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   const readAssets = (urls) => Promise.all(urls.map((u) => fetchBinaryUrl(u, LIMITS.fileBytes)));
   const maxAssets = policy?.max_assets ?? LIMITS.files;
   let captured;
+  const tCap0 = Date.now();
   try {
-    captured = await captureWeb(doc, captureBaseUrl, readAssets, { ...LIMITS, files: maxAssets }, onStep);
-  } finally {
+    captured = await captureWeb(
+      doc,
+      captureBaseUrl,
+      readAssets,
+      { ...LIMITS, files: maxAssets },
+      onStep,
+      { fastBudgetMs: 60 }
+    );
+  } catch (err) {
+    resetSnapshotWebView();
+    throw err;
+  }
+  const captureFastMs = Date.now() - tCap0;
+  if (captured.runFullCapture) {
+    const origRun = captured.runFullCapture;
+    captured.runFullCapture = () => origRun().finally(() => resetSnapshotWebView());
+  } else {
     resetSnapshotWebView();
   }
 
@@ -301,6 +335,7 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
 
   return {
     ...captured,
+    timings: { fetchMainMs, renderDomMs, captureFastMs },
     capture: policy
       ? {
           plan: policy.plan,
@@ -388,9 +423,38 @@ export async function readSharedText(text, suggestedTitle = "", onStep = () => {
   };
 }
 
+const TRANSLIT = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i",
+  й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+  у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y",
+  ь: "", э: "e", ю: "yu", я: "ya",
+  і: "i", ї: "yi", є: "ye", ґ: "g", ў: "w", ђ: "dj", ј: "j", љ: "lj", њ: "nj",
+  ћ: "c", џ: "dz", ѓ: "g", ѕ: "dz", ќ: "k",
+  α: "a", β: "v", γ: "g", δ: "d", ε: "e", ζ: "z", η: "i", θ: "th", ι: "i", κ: "k",
+  λ: "l", μ: "m", ν: "n", ξ: "x", ο: "o", π: "p", ρ: "r", σ: "s", ς: "s", τ: "t",
+  υ: "y", φ: "f", χ: "ch", ψ: "ps", ω: "o",
+  ά: "a", έ: "e", ή: "i", ί: "i", ό: "o", ύ: "y", ώ: "o", ϊ: "i", ϋ: "y", ΐ: "i", ΰ: "y",
+  ß: "ss", æ: "ae", œ: "oe", ø: "o", ð: "d", þ: "th", ł: "l", đ: "d",
+};
+
+export function slugifyTitle(title) {
+  let out = "";
+  for (const ch of String(title || "").toLowerCase()) {
+    out += ch in TRANSLIT ? TRANSLIT[ch] : ch;
+  }
+  const slug = out
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/, "");
+  return slug || "untitled";
+}
+
 async function inlineFile(f) {
   const bytes = new Uint8Array(await f.blob.arrayBuffer());
-  if (f.html) {
+  if (f.html || /\.(?:html?|css|svg|txt|md|json|xml)$/i.test(f.path)) {
     try {
       return { path: f.path, content: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
     } catch {}
@@ -426,40 +490,46 @@ async function stageFiles(begin, files, onProgress) {
       onProgress({ step: "uploading", done, of: files.length });
     }
   };
-  await Promise.all(Array.from({ length: Math.min(12, files.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(16, files.length) }, worker));
   return out;
 }
 
 /**
  * Publish a prepared page/file set to spacesheep.dev via MCP.
  */
-export async function publishPage(page, { uuid = null, visibility = null, remember = true, onProgress = () => {} } = {}) {
-  onProgress({ step: "connecting", title: page.title, done: 0, of: page.files.length });
+export async function publishPage(
+  page,
+  {
+    uuid = null,
+    visibility = null,
+    remember = true,
+    onProgress = () => {},
+    onPhase1Confirmed = null,
+    onBackgroundComplete = null,
+    onBackgroundError = null,
+  } = {}
+) {
+  onProgress({ step: "publishing", title: page.title, done: 0, of: page.files.length });
   if (!(await isConnected())) {
     await signIn();
   }
   const mcp = new Mcp();
 
-  if (page.capture) {
+  if (page.capture && page.skipped?.overLimit > 0 && (page.capture.limit || 0) <= 35) {
     try {
       const current = capturePolicy(await mcp.call("get_capture_limits"));
       await extension.storage.local.set({ cachedPolicy: current });
-      if (page.sourceUrl && page.skipped?.overLimit > 0 && current.max_assets > (page.capture.limit || 0)) {
+      if (page.sourceUrl && current.max_assets > (page.capture.limit || 0)) {
         const recaptured = await readSharedUrl(page.sourceUrl, page.title, () => {}, current);
         Object.assign(page, recaptured);
-      } else if (current.max_assets < page.files.length - 1) {
-        throw Object.assign(
-          new Error(`Your ${current.plan} plan allows ${current.max_assets} assets per page.`),
-          { code: "plan_changed" }
-        );
       }
-    } catch (e) {
-      if (e && e.code === "plan_changed") throw e;
-    }
+    } catch {}
   }
 
   const all = page.files;
   const total = all.reduce((n, f) => n + f.blob.size, 0);
+  const initialFilesCount = all.length;
+  const initialBytes = total;
   let files;
   let dropped = [];
   if (total <= INLINE_BYTES) {
@@ -488,30 +558,165 @@ export async function publishPage(page, { uuid = null, visibility = null, rememb
     args.access = { visibility };
   }
 
-  const result = await mcp.call("deploy", args);
-  const spaceId = result && (result.uuid || result.id || result.space_id);
-  if (!spaceId || !result.url) {
+  const priorMoved = page.sourceUrl ? await getMovedForUrl(page.sourceUrl) : null;
+  const acct = await getAccount();
+  const handle =
+    (acct && acct.handle) ||
+    (priorMoved && priorMoved.url && (priorMoved.url.match(/\/@([a-z0-9][a-z0-9_-]*)\//i) || [])[1]) ||
+    null;
+  const optimisticUrl =
+    (uuid && priorMoved && priorMoved.uuid === uuid && priorMoved.url)
+      ? priorMoved.url
+      : handle
+      ? `https://spacesheep.dev/@${handle}/${slugifyTitle(page.title)}`
+      : null;
+
+  const tDep0 = Date.now();
+  const phase1Promise = mcp.call("deploy", args);
+
+  let fastResult = null;
+  if (optimisticUrl) {
+    fastResult = await Promise.race([
+      phase1Promise.then((r) => ({ ok: true, result: r })).catch((err) => ({ ok: false, err })),
+      new Promise((r) => setTimeout(() => r(null), 250)),
+    ]);
+    if (fastResult && !fastResult.ok) {
+      throw fastResult.err;
+    }
+  } else {
+    fastResult = { ok: true, result: await phase1Promise };
+  }
+
+  const deployFastMs = Date.now() - tDep0;
+  const immediateResult = fastResult ? fastResult.result : null;
+  const immediateSpaceId = immediateResult
+    ? immediateResult.uuid || immediateResult.id || immediateResult.space_id
+    : uuid;
+  const immediateUrl = immediateResult ? immediateResult.url : optimisticUrl;
+
+  if (immediateResult && (!immediateSpaceId || !immediateUrl)) {
     throw new Error("spacesheep answered without a link — check your dashboard before trying again");
   }
 
-  if (remember && page.sourceUrl) {
-    await rememberMoved(page.sourceUrl, {
-      uuid: spaceId,
-      url: result.url,
-      title: page.title,
-      at: Date.now(),
-    });
+  if (immediateResult) {
+    if (remember && page.sourceUrl) {
+      rememberMoved(page.sourceUrl, {
+        uuid: immediateSpaceId,
+        url: immediateUrl,
+        title: page.title,
+        at: Date.now(),
+      }).catch(() => {});
+    }
+    learnAccount(immediateUrl).catch(() => {});
   }
-  await learnAccount(result.url);
+
+  let backgroundSync = null;
+  if (!immediateResult || page.runFullCapture) {
+    const fullCapturePromise = page.runFullCapture ? page.runFullCapture() : null;
+    backgroundSync = (async () => {
+      try {
+        const tBg0 = Date.now();
+        const result = immediateResult || (await phase1Promise);
+        const phase1TotalMs = Date.now() - tDep0;
+        const spaceId = result && (result.uuid || result.id || result.space_id);
+        if (!spaceId || !result.url) {
+          throw new Error("spacesheep answered without a link — check your dashboard before trying again");
+        }
+        if (!immediateResult) {
+          if (remember && page.sourceUrl) {
+            rememberMoved(page.sourceUrl, {
+              uuid: spaceId,
+              url: result.url,
+              title: page.title,
+              at: Date.now(),
+            }).catch(() => {});
+          }
+          learnAccount(result.url).catch(() => {});
+          if (onPhase1Confirmed) {
+            onPhase1Confirmed({
+              uuid: spaceId,
+              url: result.url,
+              visibility: result.visibility || visibility || null,
+              unchanged: !!result.unchanged,
+            });
+          }
+        }
+
+        let finalFilesCount = initialFilesCount;
+        let finalSkipped = page.skipped || { outside: 0, missing: 0, tooBig: 0, overLimit: 0 };
+        let finalBytes = initialBytes;
+        let fullCaptureMs = 0;
+        let deployFullMs = 0;
+
+        if (fullCapturePromise) {
+          const fullCaptured = await fullCapturePromise;
+          fullCaptureMs = Date.now() - tBg0;
+          page.files = fullCaptured.files;
+          page.skipped = fullCaptured.skipped;
+          page.bytes = fullCaptured.bytes;
+          finalFilesCount = fullCaptured.files.length;
+          finalSkipped = fullCaptured.skipped;
+          finalBytes = fullCaptured.bytes;
+          if (page.capture) {
+            page.capture.omitted = fullCaptured.skipped.overLimit;
+            page.capture.copied = Math.max(0, fullCaptured.files.length - 1);
+          }
+          if (fullCaptured.files.length > initialFilesCount) {
+            const tDep2 = Date.now();
+            const fullTotal = fullCaptured.files.reduce((n, f) => n + f.blob.size, 0);
+            let fullDeployFiles;
+            if (fullTotal <= INLINE_BYTES) {
+              fullDeployFiles = await Promise.all(fullCaptured.files.map(inlineFile));
+            } else {
+              const begin = await mcp.call("stage_begin", { space: spaceId, title: page.title });
+              const fit = fitToPlan(fullCaptured.files, begin && begin.limits, begin && begin.plan);
+              fullDeployFiles = await stageFiles(begin, fit.keep, () => {});
+            }
+            await mcp.call("deploy", {
+              uuid: spaceId,
+              files: fullDeployFiles,
+              version_name: `${uuid ? "Updated" : "Moved"} from Sheep`,
+              background: true,
+            });
+            deployFullMs = Date.now() - tDep2;
+          }
+        }
+
+        if (onBackgroundComplete) {
+          onBackgroundComplete({
+            uuid: spaceId,
+            url: result.url,
+            title: page.title,
+            visibility: result.visibility || visibility || null,
+            update: !!uuid,
+            filesCount: finalFilesCount,
+            assetsCopied: Math.max(0, finalFilesCount - 1),
+            skipped: finalSkipped,
+            bytes: finalBytes,
+            timings: { ...(page.timings || {}), deployFastMs, phase1TotalMs, fullCaptureMs, deployFullMs },
+          });
+        }
+      } catch (err) {
+        if (!immediateResult && onBackgroundError) {
+          onBackgroundError(err);
+        }
+      }
+    })();
+  }
 
   return {
-    uuid: spaceId,
-    url: result.url,
+    uuid: immediateSpaceId || null,
+    url: immediateUrl,
     title: page.title,
     update: !!uuid,
-    visibility: result.visibility || null,
-    unchanged: !!result.unchanged,
+    visibility: (immediateResult && immediateResult.visibility) || visibility || (priorMoved ? "public" : null),
+    unchanged: !!(immediateResult && immediateResult.unchanged),
     dropped,
     capture: page.capture || null,
+    filesCount: initialFilesCount,
+    bytes: initialBytes,
+    timings: { ...(page.timings || {}), deployFastMs },
+    phase1Promise,
+    backgroundSync,
   };
 }

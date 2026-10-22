@@ -3,6 +3,7 @@
 
 let nextReqId = 1;
 const pendingHttp = new Map();
+const pendingBinary = new Map();
 const pendingSnapshot = new Map();
 const pendingSnapshotAsset = new Map();
 const pendingOAuth = new Map();
@@ -16,6 +17,13 @@ if (typeof window !== "undefined") {
     pendingHttp.delete(res.id);
     if (res.error) p.reject(new Error(res.error));
     else p.resolve(res);
+  };
+
+  window.__onBinaryResponse = (res) => {
+    const p = pendingBinary.get(res.id);
+    if (!p) return;
+    pendingBinary.delete(res.id);
+    p.resolve(res);
   };
 
   window.__onSnapshotResponse = (res) => {
@@ -118,6 +126,14 @@ export async function nativeFetch(url, { method = "GET", headers = {}, body = nu
  * Fetch binary asset bytes (HTML, CSS, image, font, PDF, etc.) bypassing CORS.
  * Returns { url, finalUrl, bytes: Uint8Array, type: string } or { url, error: string }.
  */
+function shouldFallbackToSnapshotWebView(errorStr, statusNum, url) {
+  if (!snapshotWebViewActive) return false;
+  if (errorStr === "too_big") return false;
+  if (statusNum === 404 || statusNum === 410 || statusNum === 400) return false;
+  if (/\.(?:mp4|webm|ogv|mov|m4v|mp3|wav|ogg|flac|m4a)(?:[?#]|$)/i.test(String(url || ""))) return false;
+  return true;
+}
+
 export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
   if (!hasAndroidBridge()) {
     try {
@@ -131,14 +147,57 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
     }
   }
 
+  if (window.AndroidBridge && window.AndroidBridge.fetchBinaryAsync) {
+    try {
+      const id = nextReqId++;
+      const res = await new Promise((resolve) => {
+        pendingBinary.set(id, { resolve });
+        window.AndroidBridge.fetchBinaryAsync(id, url, Number(maxBytes));
+      });
+      if (!res || !res.ok) {
+        const errStr = (res && res.error) || `HTTP ${(res && res.status) || 0}`;
+        const statusNum = Number((res && res.status) || 0);
+        if (shouldFallbackToSnapshotWebView(errStr, statusNum, url)) {
+          const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
+          if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
+        }
+        return { url, error: errStr };
+      }
+      let bytes;
+      if (typeof res.b64 === "string") {
+        const bin = atob(res.b64);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } else if (res.blobId !== undefined) {
+        const blobResp = await fetch(`https://appassets.spacesheep.invalid/__blob?id=${res.blobId}`);
+        bytes = new Uint8Array(await blobResp.arrayBuffer());
+      } else {
+        bytes = new Uint8Array(0);
+      }
+      if (bytes.length > maxBytes) return { url, error: "too_big" };
+      return {
+        url,
+        finalUrl: res.finalUrl || url,
+        bytes,
+        type: res.contentType || "",
+      };
+    } catch (e) {
+      if (shouldFallbackToSnapshotWebView(null, 0, url)) {
+        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
+        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
+      }
+      return { url, error: String(e.message || e) };
+    }
+  }
+
   if (window.AndroidBridge && window.AndroidBridge.fetchBinaryBase64) {
     try {
       const raw = window.AndroidBridge.fetchBinaryBase64(url, Number(maxBytes));
       const res = JSON.parse(raw || "{}");
       if (!res.ok) {
-        if (snapshotWebViewActive) {
+        if (shouldFallbackToSnapshotWebView(res.error, Number(res.status || 0), url)) {
           const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-          if (viaWv && viaWv.bytes) return viaWv;
+          if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
         }
         return { url, error: res.error || `HTTP ${res.status || 0}` };
       }
@@ -153,9 +212,9 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
         type: res.contentType || "",
       };
     } catch (e) {
-      if (snapshotWebViewActive) {
+      if (shouldFallbackToSnapshotWebView(null, 0, url)) {
         const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && viaWv.bytes) return viaWv;
+        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
       }
       return { url, error: String(e.message || e) };
     }
@@ -165,18 +224,18 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
     const proxyUrl = `https://appassets.spacesheep.invalid/__fetch?url=${encodeURIComponent(url)}&maxBytes=${Number(maxBytes)}`;
     const r = await fetch(proxyUrl);
     const err = r.headers.get("x-fetch-error");
+    const status = Number(r.headers.get("x-http-status") || r.status);
     if (err) {
-      if (snapshotWebViewActive) {
+      if (shouldFallbackToSnapshotWebView(err, status, url)) {
         const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && viaWv.bytes) return viaWv;
+        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
       }
       return { url, error: err };
     }
-    const status = Number(r.headers.get("x-http-status") || r.status);
     if (status < 200 || status >= 300) {
-      if (snapshotWebViewActive) {
+      if (shouldFallbackToSnapshotWebView(null, status, url)) {
         const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && viaWv.bytes) return viaWv;
+        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
       }
       return { url, error: `HTTP ${status}` };
     }
@@ -189,9 +248,9 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
       type: r.headers.get("x-orig-type") || r.headers.get("content-type") || "",
     };
   } catch (e) {
-    if (snapshotWebViewActive) {
+    if (shouldFallbackToSnapshotWebView(null, 0, url)) {
       const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-      if (viaWv && viaWv.bytes) return viaWv;
+      if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
     }
     return { url, error: String(e.message || e) };
   }
@@ -206,7 +265,7 @@ async function fetchViaSnapshotWebView(url, maxBytes = 25 * 1024 * 1024) {
     const timer = setTimeout(() => {
       pendingSnapshotAsset.delete(id);
       resolve(null);
-    }, 10000);
+    }, 2500);
     pendingSnapshotAsset.set(id, {
       resolve: (res) => {
         clearTimeout(timer);

@@ -143,7 +143,12 @@ public final class DomSnapshotter {
     public DomSnapshotter(Context context, Handler mainHandler, SnapshotCallback callback) {
         this.mainHandler = mainHandler;
         this.callback = callback;
-        this.webView = new WebView(context);
+        this.webView = new WebView(context) {
+            @Override
+            protected void onWindowVisibilityChanged(int visibility) {
+                super.onWindowVisibilityChanged(android.view.View.VISIBLE);
+            }
+        };
         this.webView.setAlpha(0.01f);
         this.webView.setSoundEffectsEnabled(false);
 
@@ -192,10 +197,26 @@ public final class DomSnapshotter {
 
         this.webView.setWebViewClient(new WebViewClient() {
             @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, android.webkit.WebResourceRequest request) {
+                try {
+                    String path = request.getUrl() != null ? request.getUrl().getPath() : null;
+                    if (path != null && path.matches("(?i).*\\.(mp4|webm|ogv|mov|m4v|mp3|wav|ogg|flac|m4a|woff2?|ttf|otf|eot)$")) {
+                        return new android.webkit.WebResourceResponse(
+                                "text/plain",
+                                "utf-8",
+                                new java.io.ByteArrayInputStream(new byte[0])
+                        );
+                    }
+                } catch (Exception ignored) {
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 final int snapId = activeId;
                 if (snapId <= 0 || "about:blank".equals(url)) return;
-                scheduleCheckOrExtract(snapId, 750);
+                scheduleCheckOrExtract(snapId, 120);
             }
         });
     }
@@ -211,11 +232,20 @@ public final class DomSnapshotter {
         settleTask = () -> {
             if (activeId != snapId) return;
             webView.evaluateJavascript(
-                    "(function(){ return !!(document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')); })()",
+                    "(function(){" +
+                    "  var href = String(location.href || '');" +
+                    "  if (!href || href === 'about:blank') return 'wait';" +
+                    "  if (document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')) return 'challenge';" +
+                    "  if (document.readyState === 'loading' || !document.body || document.body.innerHTML.trim().length < 200) return 'wait';" +
+                    "  if (document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete') return 'wait';" +
+                    "  return 'ready';" +
+                    "})()",
                     val -> {
                         if (activeId != snapId) return;
-                        if ("true".equals(val)) {
-                            scheduleCheckOrExtract(snapId, 900);
+                        if ("\"challenge\"".equals(val)) {
+                            scheduleCheckOrExtract(snapId, 600);
+                        } else if ("\"wait\"".equals(val)) {
+                            scheduleCheckOrExtract(snapId, 160);
                         } else {
                             extractSnapshot(snapId);
                         }
@@ -237,9 +267,10 @@ public final class DomSnapshotter {
                     extractSnapshot(id);
                 }
             };
-            mainHandler.postDelayed(timeoutTask, Math.max(1500, timeoutMs));
+            mainHandler.postDelayed(timeoutTask, Math.max(1200, timeoutMs));
             webView.stopLoading();
             webView.loadUrl(url);
+            scheduleCheckOrExtract(id, 280);
         });
     }
 
@@ -255,6 +286,11 @@ public final class DomSnapshotter {
                     "    if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });" +
                     "    if (!r.ok) {" +
                     "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'HTTP ' + r.status }));" +
+                    "      return;" +
+                    "    }" +
+                    "    var cl = Number(r.headers.get('content-length') || 0);" +
+                    "    if (cl > " + maxBytes + ") {" +
+                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'too_big' }));" +
                     "      return;" +
                     "    }" +
                     "    var blob = await r.blob();" +

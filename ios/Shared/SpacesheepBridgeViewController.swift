@@ -41,6 +41,9 @@ import UniformTypeIdentifiers
           httpRequestAsync: function(id, url, method, headersJson, body, isBase64Body) {
             return this._call("httpRequestAsync", [Number(id), String(url), String(method || "GET"), String(headersJson || "{}"), String(body || ""), Boolean(isBase64Body)]);
           },
+          fetchBinaryAsync: function(id, url, maxBytes) {
+            return this._call("fetchBinaryAsync", [Number(id), String(url), Number(maxBytes || 26214400)]);
+          },
           fetchBinaryBase64: function(url, maxBytes) {
             return this._call("fetchBinaryBase64", [String(url), Number(maxBytes || 26214400)]);
           },
@@ -412,6 +415,13 @@ import UniformTypeIdentifiers
             completionHandler("")
             performHttpRequestAsync(reqId: reqId, urlStr: urlStr, method: httpMethod, headersStr: headersStr, bodyStr: bodyStr, isBase64: isBase64)
 
+        case "fetchBinaryAsync":
+            let binId = args.count > 0 ? ((args[0] as? NSNumber)?.intValue ?? 0) : 0
+            let urlStr = args.count > 1 ? (args[1] as? String ?? "") : ""
+            let maxBytes = args.count > 2 ? ((args[2] as? NSNumber)?.intValue ?? 26214400) : 26214400
+            completionHandler("")
+            performFetchBinaryAsync(binId: binId, urlStr: urlStr, maxBytes: maxBytes)
+
         case "fetchBinaryBase64":
             let urlStr = args.count > 0 ? (args[0] as? String ?? "") : ""
             let maxBytes = args.count > 1 ? ((args[1] as? NSNumber)?.intValue ?? 26214400) : 26214400
@@ -513,6 +523,14 @@ import UniformTypeIdentifiers
 
     // MARK: - Native HTTP & Binary Fetch
 
+    private static let fastSession: URLSession = {
+        let cfg = URLSessionConfiguration.default
+        cfg.httpMaximumConnectionsPerHost = 24
+        cfg.timeoutIntervalForRequest = 15
+        cfg.timeoutIntervalForResource = 30
+        return URLSession(configuration: cfg)
+    }()
+
     private func performHttpRequestAsync(reqId: Int, urlStr: String, method: String, headersStr: String, bodyStr: String, isBase64: Bool) {
         guard let url = URL(string: urlStr) else {
             let errJson = Self.jsonString(["id": reqId, "error": "Invalid URL"])
@@ -538,7 +556,7 @@ import UniformTypeIdentifiers
             }
         }
 
-        URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+        Self.fastSession.dataTask(with: req) { [weak self] data, resp, err in
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 if let err = err {
@@ -587,14 +605,34 @@ import UniformTypeIdentifiers
         }.resume()
     }
 
+    private func performFetchBinaryAsync(binId: Int, urlStr: String, maxBytes: Int) {
+        performFetchBinary(urlStr: urlStr, maxBytes: maxBytes) { [weak self] jsonStr in
+            guard let self = self else { return }
+            if let raw = jsonStr,
+               let data = raw.data(using: .utf8),
+               var dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+                dict["id"] = binId
+                if let b64 = dict["base64"] as? String {
+                    dict["b64"] = b64
+                    dict.removeValue(forKey: "base64")
+                }
+                let outJson = Self.jsonString(dict)
+                self.mainWebView.evaluateJavaScript("window.__onBinaryResponse && window.__onBinaryResponse(\(outJson));", completionHandler: nil)
+            } else {
+                let errJson = Self.jsonString(["id": binId, "ok": false, "status": 0, "error": "Fetch failed"])
+                self.mainWebView.evaluateJavaScript("window.__onBinaryResponse && window.__onBinaryResponse(\(errJson));", completionHandler: nil)
+            }
+        }
+    }
+
     private func performFetchBinary(urlStr: String, maxBytes: Int, completion: @escaping (String?) -> Void) {
         guard let url = URL(string: urlStr) else {
             completion(Self.jsonString(["ok": false, "status": 0, "error": "Invalid URL"]))
             return
         }
-        var req = URLRequest(url: url, timeoutInterval: 30)
+        var req = URLRequest(url: url, timeoutInterval: 20)
         req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.dataTask(with: req) { data, resp, err in
+        Self.fastSession.dataTask(with: req) { data, resp, err in
             guard let data = data, err == nil else {
                 DispatchQueue.main.async {
                     completion(Self.jsonString(["ok": false, "status": 0, "error": err?.localizedDescription ?? "Fetch failed"]))
@@ -653,7 +691,7 @@ import UniformTypeIdentifiers
         self.view.insertSubview(capWebView, belowSubview: self.mainWebView)
         self.captureWebView = capWebView
 
-        let timeoutSec = max(Double(timeoutMs) / 1000.0, 14.0)
+        let timeoutSec = max(Double(timeoutMs) / 1000.0, 3.0)
         let workItem = DispatchWorkItem { [weak self] in
             self?.finishSnapshotFromCaptureWebView()
         }
@@ -662,6 +700,7 @@ import UniformTypeIdentifiers
 
         let req = URLRequest(url: url, timeoutInterval: timeoutSec + 5.0)
         capWebView.load(req)
+        scheduleCheckOrExtract(delaySec: 0.3)
     }
 
     private func performFetchSnapshotAsset(assetId: Int, urlStr: String, maxBytes: Int) {
@@ -678,6 +717,8 @@ import UniformTypeIdentifiers
           if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }
           if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });
           if (!r.ok) return JSON.stringify({ ok: false, error: 'HTTP ' + r.status });
+          var cl = Number(r.headers.get('content-length') || 0);
+          if (cl > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
           var blob = await r.blob();
           if (blob.size > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
           var b64 = await new Promise(function(resolve, reject) {
@@ -738,21 +779,24 @@ import UniformTypeIdentifiers
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView == self.captureWebView else { return }
-        scheduleCheckOrExtract(delaySec: 1.0)
+        scheduleCheckOrExtract(delaySec: 0.15)
     }
 
     private func scheduleCheckOrExtract(delaySec: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
             guard let self = self, let capWebView = self.captureWebView, self.pendingSnapshotId != 0 else { return }
-            let checkJs = "(function(){ var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); return JSON.stringify({challenge: c, title: t, vis: document.visibilityState, ua: navigator.userAgent, url: location.href, bodyLen: document.body ? document.body.innerHTML.length : 0}); })()"
+            let checkJs = "(function(){ var href = String(location.href || ''); var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); var bLen = document.body ? document.body.innerHTML.trim().length : 0; var katexWait = !!(document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete'); var ready = !c && href !== '' && href !== 'about:blank' && document.readyState !== 'loading' && bLen >= 200 && !katexWait; return JSON.stringify({challenge: c, ready: ready, title: t, url: href, bodyLen: bLen}); })()"
             capWebView.evaluateJavaScript(checkJs) { [weak self] val, _ in
                 guard let self = self, self.pendingSnapshotId != 0 else { return }
                 if let str = val as? String,
                    let data = str.data(using: .utf8),
                    let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    NSLog("[ShareToSpacesheepCapture] check=%@", str)
                     if (info["challenge"] as? Bool) == true {
-                        self.scheduleCheckOrExtract(delaySec: 1.0)
+                        self.scheduleCheckOrExtract(delaySec: 0.6)
+                        return
+                    }
+                    if (info["ready"] as? Bool) != true {
+                        self.scheduleCheckOrExtract(delaySec: 0.16)
                         return
                     }
                 }

@@ -68,9 +68,65 @@ function unescapeCss(value) {
 }
 const quotedCss = (value) => '"' + value.replace(/["\\\n\r\f]/g, (c) => `\\${c.codePointAt(0).toString(16)} `) + '"';
 
+const ALLOWED_CDN_HOSTS = new Set([
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+  "cdn.jsdelivr.net",
+  "cdnjs.cloudflare.com",
+  "unpkg.com",
+  "esm.sh",
+  "cdn.tailwindcss.com",
+  "code.jquery.com",
+]);
+
+export function isAllowedCdnAsset(urlInput, kind = "asset") {
+  try {
+    const u = urlInput instanceof URL ? urlInput : new URL(String(urlInput));
+    const host = u.hostname.toLowerCase();
+    if (!ALLOWED_CDN_HOSTS.has(host)) return false;
+    if (host === "fonts.googleapis.com" || host === "fonts.gstatic.com") return true;
+    if (kind === "stylesheet" || /\.(?:css|js|mjs|woff2?|ttf|otf|eot)(?:[?#]|$)/i.test(u.pathname)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function stripLegacyFontFallbacks(cssText) {
+  return String(cssText || "").replace(/@font-face\s*\{[\s\S]*?\}/gi, (block) => {
+    if (!/\.woff2(?:[?#)'"\s]|$)/i.test(block)) return block;
+    return block.replace(/src\s*:\s*([^;}]+)/gi, (srcDecl, srcList) => {
+      const parts = [];
+      let cur = "", depth = 0, quote = "";
+      for (let i = 0; i < srcList.length; i++) {
+        const c = srcList[i];
+        if (quote) {
+          if (c === "\\" && i + 1 < srcList.length) { cur += c + srcList[++i]; continue; }
+          if (c === quote) quote = "";
+          cur += c;
+        } else {
+          if (c === '"' || c === "'") quote = c;
+          else if (c === "(") depth++;
+          else if (c === ")") depth = Math.max(0, depth - 1);
+          else if (c === "," && depth === 0) {
+            parts.push(cur.trim());
+            cur = "";
+            continue;
+          }
+          cur += c;
+        }
+      }
+      if (cur.trim()) parts.push(cur.trim());
+      const filtered = parts.filter((p) => !/\.(?:woff|ttf|otf|eot)(?:[?#)'"\s]|$)/i.test(p) || /\.woff2(?:[?#)'"\s]|$)/i.test(p));
+      return filtered.length ? `src:${filtered.join(",")}` : srcDecl;
+    });
+  });
+}
+
 // Skip comments and unrelated strings, so content:"url(...)" isn't a download.
 // Also recognize quoted image-set candidates, imports and escaped CSS URLs.
-export function rewriteCss(text, rewrite) {
+export function rewriteCss(rawText, rewrite) {
+  const text = stripLegacyFontFallbacks(rawText);
   const tokens = /\/\*[\s\S]*?\*\/|url\(\s*(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)'|((?:\\[\s\S]|[^)\\])*))\s*\)|@import\s+(?:"((?:\\[\s\S]|[^"\\])*)"|'((?:\\[\s\S]|[^'\\])*)')|(?:-webkit-)?image-set\(|[\w-]+\(|[()]|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/gi;
   const stack = [];
   return text.replace(tokens, (match, double, single, bare, impDouble, impSingle, offset) => {
@@ -104,7 +160,19 @@ export function documentBase(doc, url) {
 export function stripScripts(doc) {
   for (const el of doc.querySelectorAll("script")) {
     const type = (el.getAttribute("type") || "").trim().toLowerCase();
-    if (!type || type === "module" || /(java|ecma)script/.test(type)) el.remove();
+    if (!type || type === "module" || /(java|ecma)script/.test(type)) {
+      const src = (el.getAttribute("src") || "").trim();
+      const text = (el.textContent || "").trim();
+      if (src && /^https:\/\/(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com)\//i.test(src) && /(?:katex|mathjax)/i.test(src)) {
+        el.removeAttribute("integrity");
+        el.removeAttribute("crossorigin");
+        continue;
+      }
+      if (!src && /(?:renderMathInElement|katexOptions|MathJax)/i.test(text) && text.length < 4000) {
+        continue;
+      }
+      el.remove();
+    }
   }
   for (const el of doc.querySelectorAll('link[rel~="modulepreload" i], link[rel~="preload" i][as="script" i], link[rel~="preconnect" i], link[rel~="dns-prefetch" i]')) el.remove();
 }
@@ -114,11 +182,14 @@ export function rewriteDocument(doc, rewrite) {
     const value = el.getAttribute(name);
     if (value === null) return;
     const tag = el.tagName.toLowerCase();
+    const rel = el.getAttribute("rel") || "";
+    const isStylesheet = tag === "link" && /(^|\s)stylesheet(\s|$)/i.test(rel);
     const image = tag === "img" || tag === "image" || name === "poster" || name === "imagesrcset"
       || (tag === "source" && el.parentElement?.tagName.toLowerCase() === "picture")
       || (tag === "input" && el.getAttribute("type") === "image")
-      || (tag === "link" && (/icon/i.test(el.getAttribute("rel") || "") || el.getAttribute("as") === "image"));
-    const visit = (raw) => rewrite(raw, image ? "image" : "asset");
+      || (tag === "link" && (/icon/i.test(rel) || el.getAttribute("as") === "image"));
+    const kind = isStylesheet ? "stylesheet" : image ? "image" : "asset";
+    const visit = (raw) => rewrite(raw, kind);
     const next = name === "srcset" || name === "imagesrcset" ? rewriteSrcset(value, visit) : visit(value);
     if (next !== value) {
       if ((name === "srcset" || name === "imagesrcset") && next === "") {
@@ -213,6 +284,25 @@ export function prepareDocument(doc, base) {
     if (sheetHrefs.has(el.getAttribute("href"))) el.remove();
     else el.setAttribute("rel", "stylesheet");
   }
+  // Normalize self-hosted or duplicate KaTeX stylesheets to a single allowlisted CDN link
+  // so pages don't download 60-120 redundant .woff2/.woff/.ttf KaTeX font files.
+  const seenStylesheets = new Set();
+  for (const el of doc.querySelectorAll('link[rel~="stylesheet" i][href]')) {
+    let href = (el.getAttribute("href") || "").trim();
+    if (/(?:^|\/)katex(?:\.min)?\.css(?:[?#]|$)/i.test(href)) {
+      href = "https://cdn.jsdelivr.net/npm/katex@0.16.2/dist/katex.min.css";
+      el.setAttribute("href", href);
+      el.removeAttribute("integrity");
+      el.removeAttribute("crossorigin");
+    }
+    let resolvedHref = href;
+    try { resolvedHref = new URL(href, base).href; } catch {}
+    if (seenStylesheets.has(resolvedHref)) {
+      el.remove();
+    } else {
+      seenStylesheets.add(resolvedHref);
+    }
+  }
   for (const el of doc.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^="sp_message_container"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role="dialog"][aria-label*="Subscribe" i], [class*="subscribeDialog"], iframe[width="0"][height="0"], iframe.channel-frame')) {
     el.remove();
   }
@@ -259,6 +349,14 @@ export function prepareDocument(doc, base) {
     if (best || (curSrc && !curSrc.startsWith("data:"))) {
       img.removeAttribute("srcset");
       img.removeAttribute("sizes");
+    }
+  }
+  // Resolve streaming media (video, audio, track, iframe) to absolute URLs so they play
+  // directly from origin instead of blocking share on 100 MB media downloads.
+  for (const el of doc.querySelectorAll("video[src], audio[src], video source[src], audio source[src], track[src], iframe[src]")) {
+    const raw = (el.getAttribute("src") || "").trim();
+    if (raw && !/^(?:data|blob|about|javascript):/i.test(raw)) {
+      try { el.setAttribute("src", new URL(raw, base).href); } catch {}
     }
   }
   for (const el of doc.querySelectorAll("a[href], area[href], form[action], [formaction]")) {

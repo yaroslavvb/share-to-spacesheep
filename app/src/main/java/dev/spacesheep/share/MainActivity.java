@@ -2,6 +2,7 @@ package dev.spacesheep.share;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.KeyguardManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -57,16 +58,14 @@ public class MainActivity extends Activity {
     private WebView mainWebView;
     private boolean mainPageLoaded = false;
     private JSONObject pendingPayload = null;
+    private static volatile JSONObject lastValidSharePayload = null;
+    private static volatile long lastValidShareTimeMs = 0L;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        if (Build.VERSION.SDK_INT >= 27) {
-            setShowWhenLocked(true);
-            setTurnScreenOn(true);
-        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         storage = new SpacesheepStorage(this);
@@ -110,7 +109,12 @@ public class MainActivity extends Activity {
 
         root.addView(snapshotter.getWebView(), new FrameLayout.LayoutParams(1280, 900));
 
-        mainWebView = new WebView(this);
+        mainWebView = new WebView(this) {
+            @Override
+            protected void onWindowVisibilityChanged(int visibility) {
+                super.onWindowVisibilityChanged(android.view.View.VISIBLE);
+            }
+        };
         configureMainWebView(mainWebView.getSettings());
         mainWebView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
         mainWebView.setWebChromeClient(new WebChromeClient());
@@ -195,6 +199,13 @@ public class MainActivity extends Activity {
                 return;
             }
         }
+        if (intent != null && Intent.ACTION_SEND.equals(intent.getAction())) {
+            Uri streamUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            String extraText = firstNonEmpty(intent.getStringExtra(Intent.EXTRA_TEXT), intent.getStringExtra("share_url"));
+            if (streamUri == null && extraText == null) {
+                return;
+            }
+        }
         setIntent(intent);
         JSONObject payload = buildPayloadFromIntent(intent);
         pendingPayload = payload;
@@ -221,6 +232,12 @@ public class MainActivity extends Activity {
             mainWebView = null;
         }
         if (httpClient != null) httpClient.shutdown();
+    }
+
+    private static JSONObject rememberValidPayload(JSONObject p) {
+        lastValidSharePayload = p;
+        lastValidShareTimeMs = System.currentTimeMillis();
+        return p;
     }
 
     private JSONObject buildPayloadFromIntent(Intent intent) {
@@ -259,7 +276,7 @@ public class MainActivity extends Activity {
                 payload.put("url", directUrl);
                 payload.put("title", intent.getStringExtra("share_title") != null ? intent.getStringExtra("share_title") : "");
                 payload.put("autoPublish", true);
-                return payload;
+                return rememberValidPayload(payload);
             }
 
             String action = intent.getAction();
@@ -283,20 +300,24 @@ public class MainActivity extends Activity {
                         payload.put("mode", "text");
                         payload.put("text", trimmed);
                     }
-                    return payload;
+                    return rememberValidPayload(payload);
                 }
 
                 if (streamUri != null) {
                     if ("text/plain".equalsIgnoreCase(type) && extraText != null && extraText.trim().matches("(?i)^https?://\\S+$")) {
                         payload.put("mode", "url");
                         payload.put("url", extraText.trim());
-                        return payload;
+                        return rememberValidPayload(payload);
                     }
                     JSONArray arr = new JSONArray();
                     arr.put(registerSharedUri(streamUri));
                     payload.put("mode", "files");
                     payload.put("files", arr);
-                    return payload;
+                    return rememberValidPayload(payload);
+                }
+
+                if (lastValidSharePayload != null && (System.currentTimeMillis() - lastValidShareTimeMs) < 15000L) {
+                    return lastValidSharePayload;
                 }
             } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
                 ArrayList<Uri> uris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
@@ -307,7 +328,7 @@ public class MainActivity extends Activity {
                     }
                     payload.put("mode", "files");
                     payload.put("files", arr);
-                    return payload;
+                    return rememberValidPayload(payload);
                 }
             }
         } catch (Exception e) {
@@ -385,6 +406,9 @@ public class MainActivity extends Activity {
         }
         if ("/__fetch".equals(path)) {
             return httpClient.handleProxyFetch(uri);
+        }
+        if ("/__blob".equals(path)) {
+            return httpClient.handleBlobFetch(uri);
         }
         if ("/__shared_file".equals(path)) {
             return handleSharedFileStream(uri);
@@ -475,6 +499,15 @@ public class MainActivity extends Activity {
                 final boolean isBase64) {
             httpClient.executeAsync(id, urlStr, method, headersJson, bodyStr, isBase64,
                     res -> evalJs("window.__onHttpResponse && window.__onHttpResponse(" + res.toString() + ");"));
+        }
+
+        @JavascriptInterface
+        public void fetchBinaryAsync(
+                final int id,
+                final String urlStr,
+                final long maxBytes) {
+            httpClient.fetchBinaryAsync(id, urlStr, maxBytes,
+                    res -> evalJs("window.__onBinaryResponse && window.__onBinaryResponse(" + res.toString() + ");"));
         }
 
         @JavascriptInterface

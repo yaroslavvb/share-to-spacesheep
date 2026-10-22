@@ -319,6 +319,22 @@ async function renderReady(page) {
 async function renderDone(job) {
   btnHome.hidden = false;
   show("t-done");
+  const reportedCount = job.filesCount || (currentPage ? currentPage.files.length : 1);
+  const reportedBytes = job.bytes || (currentPage ? currentPage.bytes || 0 : 0);
+  reportNativeStatus({
+    step: "done",
+    phase: job.backgroundSync ? "initial" : "complete",
+    url: job.url,
+    uuid: job.uuid,
+    title: job.title,
+    visibility: job.visibility,
+    update: job.update,
+    filesCount: reportedCount,
+    assetsCopied: Math.max(0, reportedCount - 1),
+    skipped: currentPage ? currentPage.skipped || null : null,
+    bytes: reportedBytes,
+    timings: job.timings || null,
+  });
   await renderFoot();
 
   view.querySelector(".title").textContent = job.title || "Moved";
@@ -338,7 +354,7 @@ async function renderDone(job) {
   });
 
   const visBar = view.querySelector("#vis-bar");
-  if (visBar && job.uuid) {
+  if (visBar && (job.uuid || job.phase1Promise)) {
     const pills = [...visBar.querySelectorAll(".vis-pill")];
     const syncPills = (activeVis) => {
       for (const pill of pills) {
@@ -352,6 +368,10 @@ async function renderDone(job) {
         if (!targetVis || pill.classList.contains("active")) return;
         for (const p of pills) p.disabled = true;
         try {
+          if (!job.uuid && job.phase1Promise) {
+            const r = await job.phase1Promise;
+            job.uuid = r && (r.uuid || r.id || r.space_id);
+          }
           await updateSpaceVisibility(job.uuid, targetVis);
           job.visibility = targetVis;
           syncPills(targetVis);
@@ -390,19 +410,6 @@ async function renderDone(job) {
     asNewAfter.hidden = false;
     asNewAfter.addEventListener("click", () => startPublish(currentPage, null));
   }
-
-  reportNativeStatus({
-    step: "done",
-    url: job.url,
-    uuid: job.uuid,
-    title: job.title,
-    visibility: job.visibility,
-    update: job.update,
-    filesCount: currentPage ? currentPage.files.length : 1,
-    assetsCopied: currentPage ? Math.max(0, currentPage.files.length - 1) : 0,
-    skipped: currentPage ? currentPage.skipped || null : null,
-    bytes: currentPage ? currentPage.bytes || 0 : 0,
-  });
 }
 
 function renderProblem(code, message, { retry } = {}) {
@@ -440,13 +447,46 @@ function readingWords(step, a, b, c) {
 
 async function startPublish(page, uuid = null, visibility = null) {
   currentPage = page;
+  let currentOutcome = null;
   try {
-    renderWorking({ step: "connecting", title: page.title });
+    renderWorking({ step: "publishing", title: page.title });
     const outcome = await publishPage(page, {
       uuid,
       visibility,
       onProgress: (prog) => renderWorking(prog),
+      onPhase1Confirmed: (info) => {
+        if (currentOutcome) {
+          currentOutcome.uuid = info.uuid;
+          if (info.visibility) {
+            currentOutcome.visibility = info.visibility;
+          }
+          if (info.url && info.url !== currentOutcome.url) {
+            currentOutcome.url = info.url;
+            const urlEl = view.querySelector("#result-url");
+            if (urlEl) {
+              urlEl.textContent = info.url;
+              urlEl.href = info.url;
+            }
+            copyText(info.url).catch(() => {});
+          }
+        }
+      },
+      onBackgroundComplete: (doneInfo) => {
+        reportNativeStatus({
+          step: "done",
+          phase: "complete",
+          ...doneInfo,
+        });
+      },
+      onBackgroundError: (e) => {
+        const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
+        renderFoot().catch(() => {});
+        renderProblem(e && e.code, String((e && e.message) || e), {
+          retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
+        });
+      },
     });
+    currentOutcome = outcome;
     await renderDone(outcome);
   } catch (e) {
     const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
@@ -457,8 +497,27 @@ async function startPublish(page, uuid = null, visibility = null) {
   }
 }
 
-export async function processShare(payload) {
+let lastShareSignature = "";
+let lastShareTimestamp = 0;
+
+export async function processShare(payload, { force = false } = {}) {
   try {
+    if (payload && payload.mode && payload.mode !== "launcher" && !force) {
+      const sig = JSON.stringify({
+        m: payload.mode,
+        u: payload.url || "",
+        t: payload.text || "",
+        f: payload.files || null,
+        s: payload.spaceUuid || "",
+      });
+      const now = Date.now();
+      if (sig === lastShareSignature && now - lastShareTimestamp < 4000) {
+        return;
+      }
+      lastShareSignature = sig;
+      lastShareTimestamp = now;
+    }
+
     if (payload && payload.configureKey) {
       await saveApiKey(payload.configureKey, payload.configureHandle || null);
     }
@@ -488,16 +547,16 @@ export async function processShare(payload) {
       if (el) el.textContent = readingWords(step, a, b, c);
     };
 
+    const connected = await isConnected();
     let page;
     if (mode === "url") {
       const { cachedPolicy } = await extension.storage.local.get("cachedPolicy");
-      let policy = (cachedPolicy && cachedPolicy.max_assets) ? cachedPolicy : FREE_CAPTURE;
-      if (await isConnected()) {
-        try {
-          policy = capturePolicy(await new Mcp().call("get_capture_limits"));
-          await extension.storage.local.set({ cachedPolicy: policy });
-        } catch {}
-      }
+      const policy =
+        cachedPolicy && cachedPolicy.max_assets
+          ? cachedPolicy
+          : connected
+          ? { plan: "pro", max_assets: LIMITS.files }
+          : FREE_CAPTURE;
       page = await readSharedUrl(url, payload.title || "", onStep, policy);
     } else if (mode === "files") {
       page = await readSharedFiles(payload.files || [], payload.title || "", onStep);
@@ -509,7 +568,6 @@ export async function processShare(payload) {
     }
 
     currentPage = page;
-    const connected = await isConnected();
     const before = await getMovedForUrl(page.sourceUrl);
     const targetUuid = payload.spaceUuid || (before ? before.uuid : null);
     const targetVisibility = payload.visibility || null;
@@ -519,11 +577,18 @@ export async function processShare(payload) {
     } else {
       await renderReady(page);
     }
+
+    if (connected) {
+      new Mcp()
+        .call("get_capture_limits")
+        .then((raw) => extension.storage.local.set({ cachedPolicy: capturePolicy(raw) }))
+        .catch(() => {});
+    }
   } catch (e) {
     if (e instanceof ReadError) {
-      renderProblem(e.code, e.message, { retry: () => processShare(payload) });
+      renderProblem(e.code, e.message, { retry: () => processShare(payload, { force: true }) });
     } else {
-      renderProblem("failed", String((e && e.message) || e), { retry: () => processShare(payload) });
+      renderProblem("failed", String((e && e.message) || e), { retry: () => processShare(payload, { force: true }) });
     }
   }
 }
