@@ -163,7 +163,7 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
     }
     // Many Cloudflare-protected sites return HTTP 403/503 to HttpURLConnection
     // but load cleanly in the real Chromium WebView (renderPageDom).
-    const fallbackRender = await renderPageDom(url, 8000);
+    const fallbackRender = await renderPageDom(url, 12000);
     const fallbackUrl = String((fallbackRender && fallbackRender.finalUrl) || "");
     if (
       fallbackRender &&

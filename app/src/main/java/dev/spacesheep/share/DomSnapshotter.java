@@ -30,6 +30,9 @@ public final class DomSnapshotter {
             "  if (document.querySelector('#main-frame-error, .neterror')) {" +
             "    return JSON.stringify({ ok: false, error: 'neterror' });" +
             "  }" +
+            "  if (document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running')) {" +
+            "    return JSON.stringify({ ok: false, error: 'cloudflare_challenge' });" +
+            "  }" +
             "  var d = document.doctype;" +
             "  var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC \"' + d.publicId + '\"' : '') + (d.systemId ? ' \"' + d.systemId + '\"' : '') + '>' : '<!DOCTYPE html>';" +
             "  var root = document.documentElement.cloneNode(true);" +
@@ -141,8 +144,15 @@ public final class DomSnapshotter {
         this.mainHandler = mainHandler;
         this.callback = callback;
         this.webView = new WebView(context);
-        this.webView.setVisibility(View.INVISIBLE);
+        this.webView.setAlpha(0.01f);
         this.webView.setSoundEffectsEnabled(false);
+
+        try {
+            android.webkit.CookieManager cm = android.webkit.CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            cm.setAcceptThirdPartyCookies(this.webView, true);
+        } catch (Exception ignored) {
+        }
 
         WebSettings s = this.webView.getSettings();
         s.setJavaScriptEnabled(true);

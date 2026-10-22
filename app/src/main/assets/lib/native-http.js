@@ -236,7 +236,7 @@ export async function renderPageDom(url, timeoutMs = 5500) {
     const timer = setTimeout(() => {
       pendingSnapshot.delete(id);
       resolve({ ok: false });
-    }, timeoutMs + 1500);
+    }, timeoutMs + 3000);
     pendingSnapshot.set(id, {
       resolve: (res) => {
         clearTimeout(timer);

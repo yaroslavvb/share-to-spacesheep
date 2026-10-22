@@ -449,9 +449,10 @@ async function startPublish(page, uuid = null, visibility = null) {
     });
     await renderDone(outcome);
   } catch (e) {
+    const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
     await renderFoot();
     renderProblem(e && e.code, String((e && e.message) || e), {
-      retry: () => startPublish(page, uuid, visibility),
+      retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
     });
   }
 }

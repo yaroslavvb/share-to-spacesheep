@@ -158,7 +158,13 @@ function refresh(auth) {
 export async function bearer({ interactive = false, force = false } = {}) {
   const server = await serverOrigin();
   const { auth } = await extension.storage.local.get("auth");
-  if (auth && auth.kind === "key") return force ? null : auth.key;
+  if (auth && auth.kind === "key") {
+    if (force) {
+      await extension.storage.local.remove(["auth", "account"]);
+      return null;
+    }
+    return auth.key;
+  }
   if (auth && auth.server === server) {
     if (!force && auth.access_token && auth.expires_at > Date.now() + 60_000) return auth.access_token;
     if (auth.refresh_token) {
