@@ -187,6 +187,15 @@ public class MainActivity extends Activity {
                 saveKeyDirectlyToStorage(cfgKey.trim(), cfgHandle);
             }
 
+            String spaceUuid = intent.getStringExtra("space_uuid");
+            if (spaceUuid != null && !spaceUuid.trim().isEmpty()) {
+                payload.put("spaceUuid", spaceUuid.trim());
+            }
+            String visibility = intent.getStringExtra("visibility");
+            if (visibility != null && !visibility.trim().isEmpty()) {
+                payload.put("visibility", visibility.trim());
+            }
+
             String directUrl = intent.getStringExtra("share_url");
             if (directUrl != null && !directUrl.trim().isEmpty()) {
                 payload.put("mode", "url");

@@ -300,6 +300,10 @@ async function renderDone(job) {
     title: job.title,
     visibility: job.visibility,
     update: job.update,
+    filesCount: currentPage ? currentPage.files.length : 1,
+    assetsCopied: currentPage ? Math.max(0, currentPage.files.length - 1) : 0,
+    skipped: currentPage ? currentPage.skipped || null : null,
+    bytes: currentPage ? currentPage.bytes || 0 : 0,
   });
 }
 
@@ -335,19 +339,20 @@ function readingWords(step, a, b, c) {
   return "Reading this page…";
 }
 
-async function startPublish(page, uuid = null) {
+async function startPublish(page, uuid = null, visibility = null) {
   currentPage = page;
   try {
     renderWorking({ step: "connecting", title: page.title });
     const outcome = await publishPage(page, {
       uuid,
+      visibility,
       onProgress: (prog) => renderWorking(prog),
     });
     await renderDone(outcome);
   } catch (e) {
     await renderFoot();
     renderProblem(e && e.code, String((e && e.message) || e), {
-      retry: () => startPublish(page, uuid),
+      retry: () => startPublish(page, uuid, visibility),
     });
   }
 }
@@ -404,9 +409,11 @@ export async function processShare(payload) {
     currentPage = page;
     const connected = await isConnected();
     const before = await getMovedForUrl(page.sourceUrl);
+    const targetUuid = payload.spaceUuid || (before ? before.uuid : null);
+    const targetVisibility = payload.visibility || null;
 
     if (connected && payload.autoPublish !== false) {
-      await startPublish(page, before ? before.uuid : null);
+      await startPublish(page, targetUuid, targetVisibility);
     } else {
       await renderReady(page);
     }

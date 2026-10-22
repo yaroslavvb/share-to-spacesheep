@@ -5,7 +5,12 @@ export function assetUrl(raw, base) {
   const value = (raw || "").trim();
   if (!value || value.startsWith("#")) return null;
   try {
-    const url = new URL(value, base);
+    const normalized = !/^[a-z][a-z0-9+.-]*:\/\//i.test(value)
+      && !/^(data|blob|javascript|mailto|about|tel|file):/i.test(value)
+      && /^[^/\\?#]+:[^/\\]/.test(value)
+      ? `./${value}`
+      : value;
+    const url = new URL(normalized, base);
     return /^https?:$/.test(url.protocol) ? url : null;
   } catch { return null; }
 }
@@ -132,6 +137,22 @@ export function rewriteDocument(doc, rewrite) {
 // forms retain their destination, while fragment links still target this copy.
 export function prepareDocument(doc, base) {
   stripScripts(doc);
+  for (const img of doc.querySelectorAll("img, source")) {
+    const src = (img.getAttribute("src") || "").trim();
+    const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-original");
+    if (dataSrc && (!src || src.startsWith("data:"))) {
+      img.setAttribute("src", dataSrc.trim());
+    }
+    const srcset = (img.getAttribute("srcset") || "").trim();
+    const dataSrcset = img.getAttribute("data-srcset") || img.getAttribute("data-lazy-srcset");
+    if (dataSrcset && !srcset) {
+      img.setAttribute("srcset", dataSrcset.trim());
+    }
+    if (img.tagName.toLowerCase() === "img") {
+      img.removeAttribute("loading");
+      img.removeAttribute("decoding");
+    }
+  }
   for (const el of doc.querySelectorAll("a[href], area[href], form[action], [formaction]")) {
     const attr = el.hasAttribute("href") ? "href" : el.hasAttribute("action") ? "action" : "formaction";
     const raw = el.getAttribute(attr);

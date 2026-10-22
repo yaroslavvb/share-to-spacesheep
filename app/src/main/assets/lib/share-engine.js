@@ -349,7 +349,7 @@ async function stageFiles(begin, files, onProgress) {
 /**
  * Publish a prepared page/file set to spacesheep.dev via MCP.
  */
-export async function publishPage(page, { uuid = null, remember = true, onProgress = () => {} } = {}) {
+export async function publishPage(page, { uuid = null, visibility = null, remember = true, onProgress = () => {} } = {}) {
   onProgress({ step: "connecting", title: page.title, done: 0, of: page.files.length });
   if (!(await isConnected())) {
     await signIn();
@@ -373,10 +373,9 @@ export async function publishPage(page, { uuid = null, remember = true, onProgre
   if (total <= INLINE_BYTES) {
     files = await Promise.all(all.map(inlineFile));
   } else {
-    const begin = await mcp.call(
-      "stage_begin",
-      uuid ? { space: uuid, title: page.title } : { title: page.title }
-    );
+    const stageArgs = uuid ? { space: uuid, title: page.title } : { title: page.title };
+    if (visibility) stageArgs.visibility = visibility;
+    const begin = await mcp.call("stage_begin", stageArgs);
     const fit = fitToPlan(all, begin && begin.limits, begin && begin.plan);
     dropped = fit.dropped;
     onProgress({ step: "uploading", title: page.title, done: 0, of: fit.keep.length, dropped });
@@ -392,6 +391,9 @@ export async function publishPage(page, { uuid = null, remember = true, onProgre
     args.uuid = uuid;
   } else {
     Object.assign(args, { title: page.title, emoji: EMOJI[page.kind] || "📄" });
+  }
+  if (visibility) {
+    args.access = { visibility };
   }
 
   const result = await mcp.call("deploy", args);
