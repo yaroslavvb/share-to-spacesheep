@@ -156,6 +156,7 @@ public final class NativeHttpClient {
         HttpURLConnection conn = null;
         try {
             String currentUrl = targetUrl;
+            int retries = 0;
             for (int redirects = 0; redirects < 8; redirects++) {
                 URL u = new URL(currentUrl);
                 conn = (HttpURLConnection) u.openConnection();
@@ -175,6 +176,17 @@ public final class NativeHttpClient {
                 }
 
                 int status = conn.getResponseCode();
+                if ((status == 429 || status == 503) && retries < 2) {
+                    conn.disconnect();
+                    retries++;
+                    redirects--;
+                    try {
+                        Thread.sleep(450L * retries);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                    continue;
+                }
                 if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
                     String loc = conn.getHeaderField("Location");
                     conn.disconnect();

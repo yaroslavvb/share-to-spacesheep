@@ -25,28 +25,38 @@ export function urlKey(url) {
 // the next comma, whereas commas within a URL are part of that URL.
 export function rewriteSrcset(value, rewrite) {
   let result = "", at = 0;
+  const kept = [];
+  let sawOmitted = false;
   while (at < value.length) {
     const start = at;
     while (at < value.length && /[\s,]/.test(value[at])) at++;
-    result += value.slice(start, at);
+    const sep = value.slice(start, at);
     const urlStart = at;
     while (at < value.length && !/\s/.test(value[at])) at++;
     const token = value.slice(urlStart, at);
     if (!token) break;
     const commas = token.match(/,+$/)?.[0] || "";
-    result += rewrite(commas ? token.slice(0, -commas.length) : token) + commas;
-    if (commas) continue;
-    const descriptorStart = at;
-    let depth = 0;
-    while (at < value.length) {
-      const c = value[at++];
-      if (c === "(") depth++;
-      if (c === ")") depth--;
-      if (c === "," && depth === 0) break;
+    const rewritten = rewrite(commas ? token.slice(0, -commas.length) : token);
+    let desc = "";
+    if (!commas) {
+      const descriptorStart = at;
+      let depth = 0;
+      while (at < value.length) {
+        const c = value[at++];
+        if (c === "(") depth++;
+        if (c === ")") depth--;
+        if (c === "," && depth === 0) break;
+      }
+      desc = value.slice(descriptorStart, at);
     }
-    result += value.slice(descriptorStart, at);
+    if (rewritten === "data:,") {
+      sawOmitted = true;
+    } else {
+      kept.push(rewritten + (commas ? "" : desc.replace(/,\s*$/, "")));
+    }
+    result += sep + rewritten + commas + desc;
   }
-  return result;
+  return sawOmitted ? kept.join(", ") : result;
 }
 
 function unescapeCss(value) {
@@ -111,7 +121,18 @@ export function rewriteDocument(doc, rewrite) {
     const visit = (raw) => rewrite(raw, image ? "image" : "asset");
     const next = name === "srcset" || name === "imagesrcset" ? rewriteSrcset(value, visit) : visit(value);
     if (next !== value) {
-      el.setAttribute(name, next);
+      if ((name === "srcset" || name === "imagesrcset") && next === "") {
+        if (tag === "img" && el.getAttribute("src") && el.getAttribute("src") !== "data:,") {
+          el.removeAttribute(name);
+        } else if (tag === "source" && el.parentElement?.tagName.toLowerCase() === "picture") {
+          el.remove();
+          return;
+        } else {
+          el.setAttribute(name, "data:,");
+        }
+      } else {
+        el.setAttribute(name, next);
+      }
       // CSS and nested documents can change bytes; old integrity would block them.
       el.removeAttribute("integrity");
       el.removeAttribute("crossorigin");
@@ -126,7 +147,7 @@ export function rewriteDocument(doc, rewrite) {
   for (const [tag, name] of LOADS) {
     for (const el of doc.getElementsByTagName(tag)) attribute(el, name);
   }
-  for (const el of doc.querySelectorAll("style")) el.textContent = rewriteCss(el.textContent || "", rewrite);
+  for (const el of doc.querySelectorAll("style")) el.textContent = rewriteCss((el.textContent || "").replace(/<!--[\s\S]*?-->/g, ""), rewrite);
   for (const el of doc.querySelectorAll("[style]")) el.setAttribute("style", rewriteCss(el.getAttribute("style"), rewrite));
   for (const name of ["fill", "stroke", "filter", "clip-path", "mask", "marker-start", "marker-mid", "marker-end"]) {
     for (const el of doc.querySelectorAll(`[${name}]`)) el.setAttribute(name, rewriteCss(el.getAttribute(name), rewrite));
@@ -137,6 +158,9 @@ export function rewriteDocument(doc, rewrite) {
 // forms retain their destination, while fragment links still target this copy.
 export function prepareDocument(doc, base) {
   stripScripts(doc);
+  for (const el of doc.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^="sp_message_container"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container')) {
+    el.remove();
+  }
   for (const img of doc.querySelectorAll("img, source")) {
     const src = (img.getAttribute("src") || "").trim();
     const dataSrc = img.getAttribute("data-src") || img.getAttribute("data-lazy-src") || img.getAttribute("data-original");

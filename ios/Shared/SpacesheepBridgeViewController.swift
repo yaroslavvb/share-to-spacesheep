@@ -637,8 +637,21 @@ import UniformTypeIdentifiers
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView == self.captureWebView else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
-            self?.finishSnapshotFromCaptureWebView()
+        scheduleCheckOrExtract(delaySec: 0.9)
+    }
+
+    private func scheduleCheckOrExtract(delaySec: Double) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
+            guard let self = self, let capWebView = self.captureWebView, self.pendingSnapshotId != 0 else { return }
+            let checkJs = "(function(){ return !!(document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')); })()"
+            capWebView.evaluateJavaScript(checkJs) { [weak self] val, _ in
+                guard let self = self, self.pendingSnapshotId != 0 else { return }
+                if let isChallenge = val as? Bool, isChallenge {
+                    self.scheduleCheckOrExtract(delaySec: 0.9)
+                } else {
+                    self.finishSnapshotFromCaptureWebView()
+                }
+            }
         }
     }
 
@@ -674,22 +687,74 @@ import UniformTypeIdentifiers
         let snapJs = """
         (function() {
           try {
-            var iframe = document.querySelector("iframe#content[src]");
-            if (iframe && location.hostname.endsWith("spacesheep.dev")) {
-              return JSON.stringify({
-                ok: true,
-                title: document.title || "",
-                finalUrl: location.href,
-                html: "<!DOCTYPE html>\\n" + document.documentElement.outerHTML
-              });
+            var d = document.doctype;
+            var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : '') + (d.systemId ? ' "' + d.systemId + '"' : '') + '>' : '<!DOCTYPE html>';
+            var root = document.documentElement.cloneNode(true);
+            var origCanvases = document.querySelectorAll('canvas');
+            var cloneCanvases = root.querySelectorAll('canvas');
+            for (var i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
+              try {
+                var c = origCanvases[i];
+                if (c.width > 0 && c.height > 0) {
+                  var dataUrl = c.toDataURL('image/png');
+                  if (dataUrl && dataUrl.length > 64) {
+                    var img = document.createElement('img');
+                    img.setAttribute('src', dataUrl);
+                    if (c.getAttribute('class')) img.setAttribute('class', c.getAttribute('class'));
+                    if (c.getAttribute('style')) img.setAttribute('style', c.getAttribute('style'));
+                    cloneCanvases[i].replaceWith(img);
+                  }
+                }
+              } catch(e) {}
             }
-          } catch(e) {}
-          return JSON.stringify({
-            ok: true,
-            title: document.title || "",
-            finalUrl: location.href,
-            html: "<!DOCTYPE html>\\n" + document.documentElement.outerHTML
-          });
+            var origStyles = document.querySelectorAll('style');
+            var cloneStyles = root.querySelectorAll('style');
+            for (var sIdx = 0; sIdx < origStyles.length && sIdx < cloneStyles.length; sIdx++) {
+              try {
+                var origS = origStyles[sIdx], cloneS = cloneStyles[sIdx];
+                var rawCss = (origS.textContent || '').replace(/<!--[\\s\\S]*?-->/g, '');
+                var sheetCss = '';
+                if (origS.sheet && origS.sheet.cssRules) {
+                  var rules = [];
+                  for (var rIdx = 0; rIdx < origS.sheet.cssRules.length; rIdx++) {
+                    rules.push(origS.sheet.cssRules[rIdx].cssText);
+                  }
+                  sheetCss = rules.join('\\n');
+                }
+                cloneS.textContent = (rawCss.trim().length === 0 && sheetCss.length > 0) ? sheetCss : (sheetCss.length > rawCss.length ? sheetCss : rawCss);
+              } catch(e) {}
+            }
+            var origImgs = document.querySelectorAll('img');
+            var cloneImgs = root.querySelectorAll('img');
+            for (var mIdx = 0; mIdx < origImgs.length && mIdx < cloneImgs.length; mIdx++) {
+              try {
+                var oImg = origImgs[mIdx], cImg = cloneImgs[mIdx];
+                cImg.removeAttribute('loading');
+                cImg.removeAttribute('decoding');
+                var curSrc = cImg.getAttribute('src') || '';
+                var lazySrc = cImg.getAttribute('data-src') || cImg.getAttribute('data-lazy-src') || cImg.getAttribute('data-original') || '';
+                if (lazySrc && (!curSrc || curSrc.indexOf('data:') === 0 || curSrc === 'about:blank')) {
+                  cImg.setAttribute('src', lazySrc);
+                } else if ((!curSrc || curSrc.indexOf('data:') === 0) && oImg.currentSrc && /^https?:/i.test(oImg.currentSrc)) {
+                  cImg.setAttribute('src', oImg.currentSrc);
+                }
+                var lazySrcset = cImg.getAttribute('data-srcset') || cImg.getAttribute('data-lazy-srcset') || '';
+                if (lazySrcset && !cImg.getAttribute('srcset')) {
+                  cImg.setAttribute('srcset', lazySrcset);
+                }
+              } catch(e) {}
+            }
+            var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, noscript');
+            for (var oIdx = 0; oIdx < overlays.length; oIdx++) overlays[oIdx].remove();
+            return JSON.stringify({
+              ok: true,
+              title: document.title || "",
+              finalUrl: location.href,
+              html: dt + "\\n" + root.outerHTML
+            });
+          } catch(err) {
+            return JSON.stringify({ ok: false, error: String(err) });
+          }
         })();
         """
         capWebView.evaluateJavaScript(snapJs) { [weak self] result, _ in

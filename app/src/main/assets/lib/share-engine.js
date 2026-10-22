@@ -274,6 +274,10 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
       if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
         doc = renderedDoc;
         cleanSpacesheepArtifacts(doc);
+        if (renderedUrl && /^https?:\/\//i.test(renderedUrl)) {
+          captureBaseUrl = renderedUrl;
+          if (!contentIframe) finalUrl = renderedUrl;
+        }
         if (!derivedTitle && rendered.title) {
           derivedTitle = rendered.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
         }
