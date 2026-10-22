@@ -27,6 +27,7 @@
     <footer class="foot" id="foot">
       <span id="who">Checking connection…</span>
       <div class="foot-actions">
+        <button type="button" class="link" id="btn-signin" hidden>Sign in</button>
         <button type="button" class="link" id="btn-key-toggle">API key</button>
         <button type="button" class="link" id="disconnect" hidden>Disconnect</button>
       </div>
@@ -49,6 +50,13 @@
     <section class="launcher">
       <h1 class="launcher-title">Spacesheep</h1>
       <p class="muted launcher-lead">In Chrome or Safari, tap <b>Share → Spacesheep</b> on any page, or paste a link below.</p>
+      <div id="signin-banner" class="signin-banner" hidden>
+        <p class="signin-banner-text"><b>Connect your Spacesheep account</b> to publish shared pages and files to spacesheep.dev.</p>
+        <div class="row">
+          <button type="button" class="primary" id="btn-launcher-signin">Sign in with Spacesheep</button>
+          <button type="button" class="secondary" id="btn-launcher-key">Use API key</button>
+        </div>
+      </div>
       <form id="url-form" class="url-form">
         <input type="url" id="url-input" placeholder="https://example.com" required autocomplete="off" spellcheck="false">
         <button type="submit" class="primary">Publish to Spacesheep</button>
@@ -96,6 +104,14 @@
     </section>
     <a class="result-url" id="result-url" target="_blank" rel="noopener"></a>
     <p class="copied-pill" id="copied-pill" hidden>✓ Link copied to clipboard</p>
+    <div class="vis-bar" id="vis-bar" role="group" aria-label="Who can open">
+      <span class="vis-label">Access:</span>
+      <div class="vis-pills">
+        <button type="button" class="vis-pill" data-vis="private">Only me</button>
+        <button type="button" class="vis-pill" data-vis="signed_in">Signed-in</button>
+        <button type="button" class="vis-pill" data-vis="public">Public</button>
+      </div>
+    </div>
     <p class="notes muted" hidden></p>
     <div class="row">
       <button type="button" class="primary" id="open">Open it</button>

@@ -67,6 +67,23 @@ main {
   font-size: 13.5px;
 }
 
+.signin-banner {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: grid;
+  gap: 10px;
+}
+
+.signin-banner-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+}
+
 .url-form {
   display: grid;
   gap: 10px;
@@ -110,6 +127,54 @@ main {
   font-size: 12.5px;
   color: var(--ok);
   font-weight: 600;
+}
+
+.vis-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.vis-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.vis-pills {
+  display: flex;
+  gap: 4px;
+}
+
+.vis-pill {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.vis-pill.active {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.vis-pill:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .ways {

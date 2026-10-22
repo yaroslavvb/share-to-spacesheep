@@ -1,4 +1,4 @@
-// UI controller for Share to spacesheep (Android & computer).
+// UI controller for Spacesheep (Android, iOS/iPadOS & computer).
 import { extension } from "./lib/browser.js";
 import { isConnected, signIn, signOut, saveApiKey } from "./lib/auth.js";
 import { Mcp } from "./lib/mcp.js";
@@ -10,6 +10,8 @@ import {
   ReadError,
   extractUrlFromText,
   getAccount,
+  verifyAndLearnAccount,
+  updateSpaceVisibility,
   getMovedMap,
   getMovedForUrl,
   readSharedUrl,
@@ -21,6 +23,7 @@ import {
 const view = document.getElementById("view");
 const btnHome = document.getElementById("btn-home");
 const btnPickFiles = document.getElementById("btn-pick-files");
+const btnSignIn = document.getElementById("btn-signin");
 const btnKeyToggle = document.getElementById("btn-key-toggle");
 const keyBox = document.getElementById("key-box");
 const keyInput = document.getElementById("key-input");
@@ -79,22 +82,57 @@ function shortUrl(url) {
 
 async function renderFoot() {
   const connected = await isConnected();
-  const account = await getAccount();
+  let account = await getAccount();
   const who = document.getElementById("who");
   const out = document.getElementById("disconnect");
   if (connected) {
     who.textContent = account && account.handle ? `Publishing as @${account.handle}` : "Connected to spacesheep";
     out.hidden = false;
+    if (btnSignIn) btnSignIn.hidden = true;
+    if (!account || !account.handle) {
+      verifyAndLearnAccount()
+        .then((learned) => {
+          if (learned && learned.handle) {
+            who.textContent = `Publishing as @${learned.handle}`;
+          }
+        })
+        .catch(() => {});
+    }
   } else {
     who.textContent = "Not connected yet";
     out.hidden = true;
+    if (btnSignIn) btnSignIn.hidden = false;
   }
+}
+
+async function handleInteractiveSignIn() {
+  try {
+    renderWorking({ step: "connecting", title: currentPage ? currentPage.title : "Spacesheep" });
+    await signIn();
+    await verifyAndLearnAccount().catch(() => {});
+    await renderFoot();
+    if (currentPage) {
+      await startPublish(currentPage, null);
+    } else {
+      await renderLauncher();
+    }
+  } catch (e) {
+    await renderFoot();
+    renderProblem(e && e.code, String((e && e.message) || e), {
+      retry: () => (currentPage ? renderReady(currentPage) : renderLauncher()),
+    });
+  }
+}
+
+if (btnSignIn) {
+  btnSignIn.addEventListener("click", handleInteractiveSignIn);
 }
 
 document.getElementById("disconnect").addEventListener("click", async () => {
   await signOut();
   await renderFoot();
   if (currentPage) await renderReady(currentPage);
+  else await renderLauncher();
 });
 
 btnKeyToggle.addEventListener("click", () => {
@@ -110,14 +148,27 @@ document.getElementById("key-cancel").addEventListener("click", () => {
 document.getElementById("key-save").addEventListener("click", async () => {
   const raw = keyInput.value.trim();
   if (!raw) return;
+  const saveBtn = document.getElementById("key-save");
+  const prevLabel = saveBtn.textContent;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Verifying…";
   try {
     await saveApiKey(raw);
+    await verifyAndLearnAccount();
     keyInput.value = "";
     keyBox.hidden = true;
     await renderFoot();
     if (currentPage) await startPublish(currentPage, null);
+    else await renderLauncher();
   } catch (e) {
-    renderProblem("invalid_key", String(e.message || e), { retry: () => renderLauncher() });
+    await signOut().catch(() => {});
+    await renderFoot();
+    renderProblem("invalid_key", String((e && e.message) || e), {
+      retry: () => (currentPage ? renderReady(currentPage) : renderLauncher()),
+    });
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = prevLabel;
   }
 });
 
@@ -137,6 +188,23 @@ async function renderLauncher() {
   btnHome.hidden = true;
   show("t-launcher");
   await renderFoot();
+
+  const connected = await isConnected();
+  const banner = view.querySelector("#signin-banner");
+  if (banner) {
+    banner.hidden = connected;
+    const btnLauncherSignin = view.querySelector("#btn-launcher-signin");
+    const btnLauncherKey = view.querySelector("#btn-launcher-key");
+    if (btnLauncherSignin) {
+      btnLauncherSignin.addEventListener("click", handleInteractiveSignIn);
+    }
+    if (btnLauncherKey) {
+      btnLauncherKey.addEventListener("click", () => {
+        keyBox.hidden = false;
+        keyInput.focus();
+      });
+    }
+  }
 
   const form = view.querySelector("#url-form");
   const input = view.querySelector("#url-input");
@@ -255,7 +323,11 @@ async function renderDone(job) {
 
   view.querySelector(".title").textContent = job.title || "Moved";
   const what = job.unchanged ? "Already up to date" : job.update ? "Updated" : "Moved";
-  view.querySelector(".meta").textContent = `${what} · ${WHO_CAN_OPEN[job.visibility] || "Open it to share it."}`;
+  const metaEl = view.querySelector(".meta");
+  const updateMetaText = (vis) => {
+    metaEl.textContent = `${what} · ${WHO_CAN_OPEN[vis] || "Open it to share it."}`;
+  };
+  updateMetaText(job.visibility);
 
   const urlEl = view.querySelector("#result-url");
   urlEl.textContent = job.url;
@@ -264,6 +336,32 @@ async function renderDone(job) {
     e.preventDefault();
     openExternal(job.url);
   });
+
+  const visBar = view.querySelector("#vis-bar");
+  if (visBar && job.uuid) {
+    const pills = [...visBar.querySelectorAll(".vis-pill")];
+    const syncPills = (activeVis) => {
+      for (const pill of pills) {
+        pill.classList.toggle("active", pill.dataset.vis === activeVis);
+      }
+    };
+    syncPills(job.visibility || "private");
+    for (const pill of pills) {
+      pill.addEventListener("click", async () => {
+        const targetVis = pill.dataset.vis;
+        if (!targetVis || pill.classList.contains("active")) return;
+        for (const p of pills) p.disabled = true;
+        try {
+          await updateSpaceVisibility(job.uuid, targetVis);
+          job.visibility = targetVis;
+          syncPills(targetVis);
+          updateMetaText(targetVis);
+        } catch {} finally {
+          for (const p of pills) p.disabled = false;
+        }
+      });
+    }
+  }
 
   try {
     await copyText(job.url);

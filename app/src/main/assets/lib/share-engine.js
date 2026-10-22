@@ -79,7 +79,39 @@ export async function getAccount() {
 export async function learnAccount(url) {
   const handle = (String(url || "").match(/\/@([a-z0-9][a-z0-9_-]*)\//i) || [])[1];
   if (!handle) return;
-  await extension.storage.local.set({ account: { handle } });
+  const prev = (await getAccount()) || {};
+  await extension.storage.local.set({ account: { ...prev, handle } });
+}
+
+/**
+ * Verify current credentials against mcp.spacesheep.dev and persist @username + display name.
+ */
+export async function verifyAndLearnAccount() {
+  const mcp = new Mcp();
+  const info = await mcp.call("get_account", {});
+  const text = typeof info === "string" ? info : JSON.stringify(info || "");
+  const handle = (text.match(/Username:\s*@([a-z0-9][a-z0-9_-]*)/i) || [])[1] || null;
+  const name = (text.match(/Name:\s*([^\r\n]+)/i) || [])[1]?.trim() || null;
+  const prev = (await getAccount()) || {};
+  const next = {
+    ...prev,
+    ...(handle ? { handle } : {}),
+    ...(name ? { name } : {}),
+  };
+  if (next.handle || next.name) {
+    await extension.storage.local.set({ account: next });
+  }
+  return next;
+}
+
+/**
+ * Change a published space's visibility ("private" | "signed_in" | "public").
+ */
+export async function updateSpaceVisibility(uuid, visibility) {
+  if (!uuid || !visibility) throw new Error("Missing space UUID or visibility");
+  const mcp = new Mcp();
+  await mcp.call("share_space", { uuid, visibility });
+  return visibility;
 }
 
 export async function getMovedMap() {
@@ -195,9 +227,17 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
 
   // Try live DOM rendering in the offscreen WebView so client-side JS and canvases render
   const rendered = await renderPageDom(captureBaseUrl, 4500);
-  if (rendered && rendered.ok && rendered.html) {
+  const renderedUrl = String((rendered && rendered.finalUrl) || "");
+  if (
+    rendered &&
+    rendered.ok &&
+    rendered.html &&
+    !renderedUrl.startsWith("chrome-error:") &&
+    !renderedUrl.startsWith("about:")
+  ) {
     const renderedDoc = new DOMParser().parseFromString(rendered.html, "text/html");
-    if (renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
+    const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
+    if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
       doc = renderedDoc;
       cleanSpacesheepArtifacts(doc);
       if (!derivedTitle && rendered.title) {
