@@ -47,6 +47,12 @@ import UniformTypeIdentifiers
           renderPageSnapshot: function(id, url, timeoutMs) {
             return this._call("renderPageSnapshot", [Number(id), String(url), Number(timeoutMs || 5500)]);
           },
+          fetchSnapshotAsset: function(id, url, maxBytes) {
+            return this._call("fetchSnapshotAsset", [Number(id), String(url), Number(maxBytes || 26214400)]);
+          },
+          resetSnapshotWebView: function() {
+            return this._call("resetSnapshotWebView", []);
+          },
           pickFiles: function() { return this._call("pickFiles", []); },
           copyToClipboard: function(t) { return this._call("copyToClipboard", [String(t || "")]); },
           openExternalUrl: function(u) { return this._call("openExternalUrl", [String(u || "")]); },
@@ -60,8 +66,9 @@ import UniformTypeIdentifiers
         mainWebView.translatesAutoresizingMaskIntoConstraints = false
         mainWebView.uiDelegate = self
         mainWebView.navigationDelegate = self
-        mainWebView.isOpaque = false
-        mainWebView.backgroundColor = .clear
+        mainWebView.isOpaque = true
+        mainWebView.backgroundColor = UIColor(red: 0.96, green: 0.96, blue: 0.95, alpha: 1.0)
+        mainWebView.scrollView.backgroundColor = UIColor(red: 0.96, green: 0.96, blue: 0.95, alpha: 1.0)
         if #available(iOS 16.4, *) {
             mainWebView.isInspectable = true
         }
@@ -415,6 +422,17 @@ import UniformTypeIdentifiers
             completionHandler("")
             performRenderPageSnapshot(snapId: snapId, urlStr: urlStr, timeoutMs: timeoutMs)
 
+        case "fetchSnapshotAsset":
+            let assetId = args.count > 0 ? ((args[0] as? NSNumber)?.intValue ?? 0) : 0
+            let urlStr = args.count > 1 ? (args[1] as? String ?? "") : ""
+            let maxBytes = args.count > 2 ? ((args[2] as? NSNumber)?.intValue ?? 26214400) : 26214400
+            completionHandler("")
+            performFetchSnapshotAsset(assetId: assetId, urlStr: urlStr, maxBytes: maxBytes)
+
+        case "resetSnapshotWebView":
+            completionHandler("")
+            performResetSnapshotWebView()
+
         case "copyToClipboard":
             let text = args.first as? String ?? ""
             UIPasteboard.general.string = text
@@ -501,7 +519,7 @@ import UniformTypeIdentifiers
         }
         var req = URLRequest(url: url, timeoutInterval: 45)
         req.httpMethod = method
-        req.setValue("Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ShareToSpacesheep/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
 
         if let hData = headersStr.data(using: .utf8),
            let hDict = try? JSONSerialization.jsonObject(with: hData) as? [String: Any] {
@@ -573,7 +591,7 @@ import UniformTypeIdentifiers
             return
         }
         var req = URLRequest(url: url, timeoutInterval: 30)
-        req.setValue("Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 ShareToSpacesheep/1.0", forHTTPHeaderField: "User-Agent")
+        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: req) { data, resp, err in
             guard let data = data, err == nil else {
                 DispatchQueue.main.async {
@@ -614,17 +632,26 @@ import UniformTypeIdentifiers
         }
 
         captureTimeoutWorkItem?.cancel()
+        captureWebView?.stopLoading()
         captureWebView?.removeFromSuperview()
 
         self.pendingSnapshotId = snapId
         let config = WKWebViewConfiguration()
+        config.websiteDataStore = .default()
         config.preferences.javaScriptEnabled = true
-        let capWebView = WKWebView(frame: CGRect(x: -2000, y: -2000, width: 1280, height: 900), configuration: config)
+        config.defaultWebpagePreferences.preferredContentMode = .mobile
+        let defaultAppName = config.applicationNameForUserAgent ?? "Mobile/15E148"
+        config.applicationNameForUserAgent = "Version/18.4 \(defaultAppName) Safari/604.1"
+        let capWebView = WKWebView(frame: CGRect(x: 32, y: 90, width: 320, height: 340), configuration: config)
+        capWebView.alpha = 1.0
+        capWebView.isOpaque = false
+        capWebView.isUserInteractionEnabled = false
         capWebView.navigationDelegate = self
-        self.view.addSubview(capWebView)
+        capWebView.uiDelegate = self
+        self.view.insertSubview(capWebView, belowSubview: self.mainWebView)
         self.captureWebView = capWebView
 
-        let timeoutSec = max(Double(timeoutMs) / 1000.0, 4.0)
+        let timeoutSec = max(Double(timeoutMs) / 1000.0, 14.0)
         let workItem = DispatchWorkItem { [weak self] in
             self?.finishSnapshotFromCaptureWebView()
         }
@@ -635,22 +662,97 @@ import UniformTypeIdentifiers
         capWebView.load(req)
     }
 
+    private func performFetchSnapshotAsset(assetId: Int, urlStr: String, maxBytes: Int) {
+        guard let capWebView = self.captureWebView else {
+            let errJson = Self.jsonString(["id": assetId, "ok": false, "error": "no_snapshot_webview"])
+            mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(errJson));", completionHandler: nil)
+            return
+        }
+        let jsBody = """
+        try {
+          var r;
+          try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {}
+          if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });
+          if (!r.ok) return JSON.stringify({ ok: false, error: 'HTTP ' + r.status });
+          var blob = await r.blob();
+          if (blob.size > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
+          var b64 = await new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onloadend = function() {
+              var res = String(reader.result || '');
+              var idx = res.indexOf(',');
+              resolve(idx >= 0 ? res.slice(idx + 1) : '');
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          return JSON.stringify({
+            ok: true,
+            base64: b64,
+            contentType: blob.type || r.headers.get('content-type') || '',
+            finalUrl: r.url || u
+          });
+        } catch (err) {
+          return JSON.stringify({ ok: false, error: String(err && err.message || err) });
+        }
+        """
+        capWebView.callAsyncJavaScript(jsBody, arguments: ["u": urlStr, "maxBytes": maxBytes], in: nil, in: .page) { [weak self] result in
+            guard let self = self else { return }
+            if case .success(let val) = result,
+               let jsonStr = val as? String,
+               let data = jsonStr.data(using: .utf8),
+               var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parsed["id"] = assetId
+                let outJson = Self.jsonString(parsed)
+                self.mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(outJson));", completionHandler: nil)
+            } else {
+                let errJson = Self.jsonString(["id": assetId, "ok": false, "error": "eval_failed"])
+                self.mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(errJson));", completionHandler: nil)
+            }
+        }
+    }
+
+    private func performResetSnapshotWebView() {
+        captureTimeoutWorkItem?.cancel()
+        captureTimeoutWorkItem = nil
+        pendingSnapshotId = 0
+        captureWebView?.stopLoading()
+        captureWebView?.removeFromSuperview()
+        captureWebView = nil
+    }
+
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if webView == self.captureWebView {
+            let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
+            if scheme != "http" && scheme != "https" && scheme != "about" && scheme != "data" && scheme != "blob" {
+                decisionHandler(.cancel)
+                return
+            }
+        }
+        decisionHandler(.allow)
+    }
+
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard webView == self.captureWebView else { return }
-        scheduleCheckOrExtract(delaySec: 0.9)
+        scheduleCheckOrExtract(delaySec: 1.0)
     }
 
     private func scheduleCheckOrExtract(delaySec: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
             guard let self = self, let capWebView = self.captureWebView, self.pendingSnapshotId != 0 else { return }
-            let checkJs = "(function(){ return !!(document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')); })()"
+            let checkJs = "(function(){ var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); return JSON.stringify({challenge: c, title: t, vis: document.visibilityState, ua: navigator.userAgent, url: location.href, bodyLen: document.body ? document.body.innerHTML.length : 0}); })()"
             capWebView.evaluateJavaScript(checkJs) { [weak self] val, _ in
                 guard let self = self, self.pendingSnapshotId != 0 else { return }
-                if let isChallenge = val as? Bool, isChallenge {
-                    self.scheduleCheckOrExtract(delaySec: 0.9)
-                } else {
-                    self.finishSnapshotFromCaptureWebView()
+                if let str = val as? String,
+                   let data = str.data(using: .utf8),
+                   let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    NSLog("[ShareToSpacesheepCapture] check=%@", str)
+                    if (info["challenge"] as? Bool) == true {
+                        self.scheduleCheckOrExtract(delaySec: 1.0)
+                        return
+                    }
                 }
+                self.finishSnapshotFromCaptureWebView()
             }
         }
     }
@@ -684,9 +786,20 @@ import UniformTypeIdentifiers
         let snapId = pendingSnapshotId
         pendingSnapshotId = 0
 
+        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
+            for cookie in cookies {
+                HTTPCookieStorage.shared.setCookie(cookie)
+            }
+        }
+
         let snapJs = """
         (function() {
           try {
+            var title = document.title || '';
+            var isChallenge = (title === 'Just a moment...' || title === 'Attention Required! | Cloudflare') || !!document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*="challenges.cloudflare.com"]');
+            if (isChallenge) {
+              return JSON.stringify({ ok: false, challenge: true, title: title });
+            }
             var d = document.doctype;
             var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : '') + (d.systemId ? ' "' + d.systemId + '"' : '') + '>' : '<!DOCTYPE html>';
             var root = document.documentElement.cloneNode(true);
@@ -746,9 +859,19 @@ import UniformTypeIdentifiers
             }
             var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, noscript');
             for (var oIdx = 0; oIdx < overlays.length; oIdx++) overlays[oIdx].remove();
+            var cloneBody = root.querySelector('body');
+            for (var rEl of [root, cloneBody]) {
+              if (!rEl) continue;
+              var st = rEl.getAttribute('style');
+              if (st && /overflow\\s*:\\s*hidden/i.test(st)) {
+                var cleaned = st.replace(/overflow(-[xy])?\\s*:\\s*hidden\\s*(!important)?\\s*;?/gi, '').replace(/position\\s*:\\s*fixed\\s*(!important)?\\s*;?/gi, '').trim();
+                if (cleaned) rEl.setAttribute('style', cleaned);
+                else rEl.removeAttribute('style');
+              }
+            }
             return JSON.stringify({
               ok: true,
-              title: document.title || "",
+              title: title,
               finalUrl: location.href,
               html: dt + "\\n" + root.outerHTML
             });
@@ -758,16 +881,20 @@ import UniformTypeIdentifiers
         })();
         """
         capWebView.evaluateJavaScript(snapJs) { [weak self] result, _ in
-            capWebView.removeFromSuperview()
-            self?.captureWebView = nil
             guard let self = self else { return }
             if let jsonStr = result as? String,
                let data = jsonStr.data(using: .utf8),
                var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if (parsed["ok"] as? Bool) != true {
+                    capWebView.removeFromSuperview()
+                    self.captureWebView = nil
+                }
                 parsed["id"] = snapId
                 let outJson = Self.jsonString(parsed)
                 self.mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(outJson));", completionHandler: nil)
             } else {
+                capWebView.removeFromSuperview()
+                self.captureWebView = nil
                 let errJson = Self.jsonString(["id": snapId, "ok": false])
                 self.mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(errJson));", completionHandler: nil)
             }
