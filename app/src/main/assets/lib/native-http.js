@@ -122,6 +122,26 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
     }
   }
 
+  if (window.AndroidBridge && window.AndroidBridge.fetchBinaryBase64) {
+    try {
+      const raw = window.AndroidBridge.fetchBinaryBase64(url, Number(maxBytes));
+      const res = JSON.parse(raw || "{}");
+      if (!res.ok) return { url, error: res.error || `HTTP ${res.status || 0}` };
+      const bin = atob(res.base64 || "");
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      if (bytes.length > maxBytes) return { url, error: "too_big" };
+      return {
+        url,
+        finalUrl: res.finalUrl || url,
+        bytes,
+        type: res.contentType || "",
+      };
+    } catch (e) {
+      return { url, error: String(e.message || e) };
+    }
+  }
+
   try {
     const proxyUrl = `https://appassets.spacesheep.invalid/__fetch?url=${encodeURIComponent(url)}&maxBytes=${Number(maxBytes)}`;
     const r = await fetch(proxyUrl);

@@ -5,5 +5,8 @@ local.properties
 .DS_Store
 node_modules/
 *.apk
+*.ipa
 *.keystore
 *.jks
+ios/build/
+ios/DerivedData/
