@@ -304,18 +304,16 @@ def main():
         grp = args.set_google_group.strip()
         if "@" not in grp:
             grp = f"{grp}@googlegroups.com"
-        print(f"👥 Setting Google Group '{grp}' on track '{args.track}'...")
+        target_track = "alpha" if args.track == "internal" else args.track
+        print(f"👥 Setting Google Group '{grp}' on Closed Testing track '{target_track}'...")
         api_request(
             token,
             "PUT",
-            f"{API_BASE}/edits/{edit_id}/testers/{args.track}",
+            f"{API_BASE}/edits/{edit_id}/testers/{target_track}",
             data={"googleGroups": [grp]},
         )
-        try:
-            api_request(token, "POST", f"{API_BASE}/edits/{edit_id}:commit")
-        except RuntimeError:
-            api_request(token, "POST", f"{API_BASE}/edits/{edit_id}:commit?changesNotSentForReview=true")
-        print(f"✅ Linked Google Group '{grp}' to track '{args.track}'! Anyone who joins that group can install from {INTERNAL_TEST_URL}")
+        api_request(token, "POST", f"{API_BASE}/edits/{edit_id}:commit")
+        print(f"✅ Linked Google Group '{grp}' to track '{target_track}'!")
         return
 
     if args.check_only:

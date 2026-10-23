@@ -11,7 +11,7 @@ cd "$REPO_ROOT"
 BUMP_FLAG="--bump"
 PASSTHROUGH_ARGS=()
 for arg in "$@"; do
-  if [[ "$arg" == "--no-bump" || "$arg" == "--check-only" ]]; then
+  if [[ "$arg" == "--no-bump" || "$arg" == "--check-only" || "$arg" == "--set-google-group" ]]; then
     BUMP_FLAG=""
   fi
   if [[ "$arg" != "--no-bump" ]]; then
