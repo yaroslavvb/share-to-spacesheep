@@ -91,7 +91,7 @@ This automatically calculates a monotonically increasing `CFBundleVersion` from 
      - Check **Sign-in required**
      - In **Notes**:
        ```text
-       SheepIt is an unofficial companion utility for spacesheep.dev that lets users share webpages (from Safari via the iOS Share Sheet) or local files into their Spacesheep account.
+       SheepIt is a companion app for spacesheep.dev that lets users share webpages (from Safari via the iOS Share Sheet) or local files into their Spacesheep account.
        To test without creating an account:
        1. Open SheepIt -> tap "Use API key" (or "API key" in the footer).
        2. Paste the test API key provided in the Password field and tap "Save key".
