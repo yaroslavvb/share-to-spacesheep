@@ -682,6 +682,12 @@ import UniformTypeIdentifiers
         config.defaultWebpagePreferences.preferredContentMode = .mobile
         let defaultAppName = config.applicationNameForUserAgent ?? "Mobile/15E148"
         config.applicationNameForUserAgent = "Version/18.4 \(defaultAppName) Safari/604.1"
+        let webglScript = WKUserScript(
+            source: "(function(){try{var o=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){a=Object.assign({},a||{},{preserveDrawingBuffer:true});}return o.call(this,t,a);};}catch(e){}})();",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+        config.userContentController.addUserScript(webglScript)
         let capWebView = WKWebView(frame: CGRect(x: 32, y: 90, width: 320, height: 340), configuration: config)
         capWebView.alpha = 1.0
         capWebView.isOpaque = false
@@ -785,7 +791,7 @@ import UniformTypeIdentifiers
     private func scheduleCheckOrExtract(delaySec: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
             guard let self = self, let capWebView = self.captureWebView, self.pendingSnapshotId != 0 else { return }
-            let checkJs = "(function(){ var href = String(location.href || ''); var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); var bLen = document.body ? document.body.innerHTML.trim().length : 0; var katexWait = !!(document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete'); var ready = !c && href !== '' && href !== 'about:blank' && document.readyState !== 'loading' && bLen >= 200 && !katexWait; return JSON.stringify({challenge: c, ready: ready, title: t, url: href, bodyLen: bLen}); })()"
+            let checkJs = "(function(){ var href = String(location.href || ''); var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); var bLen = document.body ? document.body.innerHTML.trim().length : 0; var katexWait = !!(document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete'); var dm = document.querySelector('d-math, d-cite'); var distillWait = !!(dm && !dm.shadowRoot); var ready = !c && href !== '' && href !== 'about:blank' && document.readyState !== 'loading' && bLen >= 200 && !katexWait && !distillWait; return JSON.stringify({challenge: c, ready: ready, title: t, url: href, bodyLen: bLen}); })()"
             capWebView.evaluateJavaScript(checkJs) { [weak self] val, _ in
                 guard let self = self, self.pendingSnapshotId != 0 else { return }
                 if let str = val as? String,
@@ -851,6 +857,32 @@ import UniformTypeIdentifiers
             var d = document.doctype;
             var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : '') + (d.systemId ? ' "' + d.systemId + '"' : '') + '>' : '<!DOCTYPE html>';
             var root = document.documentElement.cloneNode(true);
+            var origAll = document.querySelectorAll('*');
+            var cloneAll = root.querySelectorAll('*');
+            for (var shIdx = 0; shIdx < origAll.length && shIdx < cloneAll.length; shIdx++) {
+              try {
+                var oEl = origAll[shIdx], cEl = cloneAll[shIdx];
+                if (oEl.tagName === cEl.tagName && oEl.shadowRoot && !cEl.querySelector('template[shadowrootmode]')) {
+                  var tpl = document.createElement('template');
+                  tpl.setAttribute('shadowrootmode', 'open');
+                  var shCss = '';
+                  if (oEl.shadowRoot.adoptedStyleSheets && oEl.shadowRoot.adoptedStyleSheets.length > 0) {
+                    for (var sa = 0; sa < oEl.shadowRoot.adoptedStyleSheets.length; sa++) {
+                      try {
+                        var shSheet = oEl.shadowRoot.adoptedStyleSheets[sa];
+                        if (shSheet && shSheet.cssRules) {
+                          var sRules = [];
+                          for (var sr = 0; sr < shSheet.cssRules.length; sr++) sRules.push(shSheet.cssRules[sr].cssText);
+                          if (sRules.length) shCss += '<style>' + sRules.join('\\n') + '</style>';
+                        }
+                      } catch(e) {}
+                    }
+                  }
+                  tpl.innerHTML = shCss + oEl.shadowRoot.innerHTML;
+                  cEl.insertBefore(tpl, cEl.firstChild);
+                }
+              } catch(e) {}
+            }
             var origCanvases = document.querySelectorAll('canvas');
             var cloneCanvases = root.querySelectorAll('canvas');
             for (var i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
@@ -861,8 +893,11 @@ import UniformTypeIdentifiers
                   if (dataUrl && dataUrl.length > 64) {
                     var img = document.createElement('img');
                     img.setAttribute('src', dataUrl);
+                    if (c.getAttribute('id')) img.setAttribute('id', c.getAttribute('id'));
                     if (c.getAttribute('class')) img.setAttribute('class', c.getAttribute('class'));
                     if (c.getAttribute('style')) img.setAttribute('style', c.getAttribute('style'));
+                    var cw = c.clientWidth || c.width, ch = c.clientHeight || c.height;
+                    if (cw > 0 && ch > 0) { img.setAttribute('width', String(cw)); img.setAttribute('height', String(ch)); }
                     cloneCanvases[i].replaceWith(img);
                   }
                 }
@@ -884,6 +919,22 @@ import UniformTypeIdentifiers
                 }
                 cloneS.textContent = (rawCss.trim().length === 0 && sheetCss.length > 0) ? sheetCss : (sheetCss.length > rawCss.length ? sheetCss : rawCss);
               } catch(e) {}
+            }
+            if (document.adoptedStyleSheets && document.adoptedStyleSheets.length > 0) {
+              var headEl = root.querySelector('head') || root;
+              for (var aIdx = 0; aIdx < document.adoptedStyleSheets.length; aIdx++) {
+                try {
+                  var aSheet = document.adoptedStyleSheets[aIdx];
+                  if (aSheet && aSheet.cssRules && aSheet.cssRules.length > 0) {
+                    var aRules = [];
+                    for (var ar = 0; ar < aSheet.cssRules.length; ar++) aRules.push(aSheet.cssRules[ar].cssText);
+                    var aStyle = document.createElement('style');
+                    aStyle.setAttribute('data-adopted-ss', String(aIdx));
+                    aStyle.textContent = aRules.join('\\n');
+                    headEl.appendChild(aStyle);
+                  }
+                } catch(e) {}
+              }
             }
             var origImgs = document.querySelectorAll('img');
             var cloneImgs = root.querySelectorAll('img');

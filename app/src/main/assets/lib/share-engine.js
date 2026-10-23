@@ -146,7 +146,13 @@ function cleanSpacesheepArtifacts(doc) {
 
 function needsLiveDomRender(doc) {
   if (!doc || !doc.body) return true;
-  if (doc.querySelector("canvas")) {
+  if (doc.querySelector("canvas, .drawer_container, d-article, d-title, d-math, d-figure, d-byline")) {
+    return true;
+  }
+  if (
+    !doc.querySelector('link[rel~="stylesheet" i], style') &&
+    doc.querySelector("script[src]")
+  ) {
     return true;
   }
   const textLen = (doc.body.textContent || "").replace(/\s+/g, " ").trim().length;

@@ -36,6 +36,32 @@ public final class DomSnapshotter {
             "  var d = document.doctype;" +
             "  var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC \"' + d.publicId + '\"' : '') + (d.systemId ? ' \"' + d.systemId + '\"' : '') + '>' : '<!DOCTYPE html>';" +
             "  var root = document.documentElement.cloneNode(true);" +
+            "  var origAll = document.querySelectorAll('*');" +
+            "  var cloneAll = root.querySelectorAll('*');" +
+            "  for (var shIdx = 0; shIdx < origAll.length && shIdx < cloneAll.length; shIdx++) {" +
+            "    try {" +
+            "      var oEl = origAll[shIdx], cEl = cloneAll[shIdx];" +
+            "      if (oEl.tagName === cEl.tagName && oEl.shadowRoot && !cEl.querySelector('template[shadowrootmode]')) {" +
+            "        var tpl = document.createElement('template');" +
+            "        tpl.setAttribute('shadowrootmode', 'open');" +
+            "        var shCss = '';" +
+            "        if (oEl.shadowRoot.adoptedStyleSheets && oEl.shadowRoot.adoptedStyleSheets.length > 0) {" +
+            "          for (var sa = 0; sa < oEl.shadowRoot.adoptedStyleSheets.length; sa++) {" +
+            "            try {" +
+            "              var shSheet = oEl.shadowRoot.adoptedStyleSheets[sa];" +
+            "              if (shSheet && shSheet.cssRules) {" +
+            "                var sRules = [];" +
+            "                for (var sr = 0; sr < shSheet.cssRules.length; sr++) sRules.push(shSheet.cssRules[sr].cssText);" +
+            "                if (sRules.length) shCss += '<style>' + sRules.join('\\n') + '</style>';" +
+            "              }" +
+            "            } catch(e) {}" +
+            "          }" +
+            "        }" +
+            "        tpl.innerHTML = shCss + oEl.shadowRoot.innerHTML;" +
+            "        cEl.insertBefore(tpl, cEl.firstChild);" +
+            "      }" +
+            "    } catch(e) {}" +
+            "  }" +
             "  var origCanvases = document.querySelectorAll('canvas');" +
             "  var cloneCanvases = root.querySelectorAll('canvas');" +
             "  for (var i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {" +
@@ -46,8 +72,11 @@ public final class DomSnapshotter {
             "        if (dataUrl && dataUrl.length > 64) {" +
             "          var img = document.createElement('img');" +
             "          img.setAttribute('src', dataUrl);" +
+            "          if (c.getAttribute('id')) img.setAttribute('id', c.getAttribute('id'));" +
             "          if (c.getAttribute('class')) img.setAttribute('class', c.getAttribute('class'));" +
             "          if (c.getAttribute('style')) img.setAttribute('style', c.getAttribute('style'));" +
+            "          var cw = c.clientWidth || c.width, ch = c.clientHeight || c.height;" +
+            "          if (cw > 0 && ch > 0) { img.setAttribute('width', String(cw)); img.setAttribute('height', String(ch)); }" +
             "          cloneCanvases[i].replaceWith(img);" +
             "        }" +
             "      }" +
@@ -213,6 +242,17 @@ public final class DomSnapshotter {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                if (activeId > 0 && !"about:blank".equals(url)) {
+                    view.evaluateJavascript(
+                            "(function(){try{var o=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){a=Object.assign({},a||{},{preserveDrawingBuffer:true});}return o.call(this,t,a);};}catch(e){}})();",
+                            null
+                    );
+                }
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 final int snapId = activeId;
                 if (snapId <= 0 || "about:blank".equals(url)) return;
@@ -238,6 +278,8 @@ public final class DomSnapshotter {
                     "  if (document.title === 'Just a moment...' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, script[src*=\"challenges.cloudflare.com\"]')) return 'challenge';" +
                     "  if (document.readyState === 'loading' || !document.body || document.body.innerHTML.trim().length < 200) return 'wait';" +
                     "  if (document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete') return 'wait';" +
+                    "  var dm = document.querySelector('d-math, d-cite');" +
+                    "  if (dm && !dm.shadowRoot) return 'wait';" +
                     "  return 'ready';" +
                     "})()",
                     val -> {

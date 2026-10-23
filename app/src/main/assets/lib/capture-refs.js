@@ -158,21 +158,41 @@ export function documentBase(doc, url) {
 }
 
 export function stripScripts(doc) {
+  let hasMathEngine = false;
+  const hasPreRenderedMath = !!doc.querySelector(".MathJax, mjx-container, .katex");
   for (const el of doc.querySelectorAll("script")) {
     const type = (el.getAttribute("type") || "").trim().toLowerCase();
-    if (!type || type === "module" || /(java|ecma)script/.test(type)) {
-      const src = (el.getAttribute("src") || "").trim();
-      const text = (el.textContent || "").trim();
-      if (src && /^https:\/\/(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com)\//i.test(src) && /(?:katex|mathjax)/i.test(src)) {
-        el.removeAttribute("integrity");
-        el.removeAttribute("crossorigin");
-        continue;
+    const src = (el.getAttribute("src") || "").trim();
+    const text = (el.textContent || "").trim();
+    if (/^math\/tex/i.test(type)) {
+      hasMathEngine = true;
+      if (hasPreRenderedMath) {
+        el.remove();
+      } else if (doc.createElement) {
+        const display = /mode\s*=\s*display/i.test(type);
+        const span = doc.createElement("span");
+        span.textContent = display ? `\\[${text}\\]` : `\\(${text}\\)`;
+        el.replaceWith(span);
       }
-      if (!src && /(?:renderMathInElement|katexOptions|MathJax)/i.test(text) && text.length < 4000) {
-        continue;
+      continue;
+    }
+    if (!type || type === "module" || /(java|ecma)script/.test(type)) {
+      if (/(?:katex|mathjax)/i.test(src) || /(?:renderMathInElement|katexOptions|MathJax)/i.test(text)) {
+        hasMathEngine = true;
       }
       el.remove();
     }
+  }
+  if (hasPreRenderedMath) {
+    for (const el of doc.querySelectorAll(".MJX_Assistive_MathML, mjx-assistive-mml, .MathJax_Preview")) {
+      el.remove();
+    }
+  }
+  if (hasMathEngine && doc.head && !doc.querySelector('meta[name="spacesheep:math" i]')) {
+    const meta = doc.createElement("meta");
+    meta.setAttribute("name", "spacesheep:math");
+    meta.setAttribute("content", "tex");
+    doc.head.appendChild(meta);
   }
   for (const el of doc.querySelectorAll('link[rel~="modulepreload" i], link[rel~="preload" i][as="script" i], link[rel~="preconnect" i], link[rel~="dns-prefetch" i]')) el.remove();
 }
@@ -216,12 +236,15 @@ export function rewriteDocument(doc, rewrite) {
     }
   }
   for (const [tag, name] of LOADS) {
-    for (const el of doc.getElementsByTagName(tag)) attribute(el, name);
+    for (const el of doc.querySelectorAll(tag)) attribute(el, name);
   }
   for (const el of doc.querySelectorAll("style")) el.textContent = rewriteCss((el.textContent || "").replace(/<!--[\s\S]*?-->/g, ""), rewrite);
   for (const el of doc.querySelectorAll("[style]")) el.setAttribute("style", rewriteCss(el.getAttribute("style"), rewrite));
   for (const name of ["fill", "stroke", "filter", "clip-path", "mask", "marker-start", "marker-mid", "marker-end"]) {
     for (const el of doc.querySelectorAll(`[${name}]`)) el.setAttribute(name, rewriteCss(el.getAttribute(name), rewrite));
+  }
+  for (const tpl of doc.querySelectorAll("template[shadowrootmode], template[shadowroot]")) {
+    if (tpl.content) rewriteDocument(tpl.content, rewrite);
   }
 }
 
@@ -268,7 +291,7 @@ export function bestSrcsetUrl(value) {
 
 // Removing <base> keeps local assets local. Resolve navigation first so links and
 // forms retain their destination, while fragment links still target this copy.
-export function prepareDocument(doc, base) {
+export function prepareDocument(doc, base, ownerDoc = doc) {
   stripScripts(doc);
   // Strip favicons, apple-touch-icons, and non-style preloads that aren't displayed inside
   // the Spacesheep iframe and otherwise consume 15+ head asset slots before body images.
@@ -278,11 +301,17 @@ export function prepareDocument(doc, base) {
     el.remove();
   }
   const sheetHrefs = new Set(
-    [...doc.querySelectorAll('link[rel~="stylesheet" i][href]')].map((el) => el.getAttribute("href"))
+    [...doc.querySelectorAll('link[rel~="stylesheet" i][href]:not([rel~="preload" i])')].map((el) => el.getAttribute("href"))
   );
   for (const el of doc.querySelectorAll('link[rel~="preload" i][as="style" i]')) {
-    if (sheetHrefs.has(el.getAttribute("href"))) el.remove();
-    else el.setAttribute("rel", "stylesheet");
+    const href = el.getAttribute("href");
+    if (href && sheetHrefs.has(href)) {
+      el.remove();
+    } else {
+      el.setAttribute("rel", "stylesheet");
+      el.removeAttribute("as");
+      if (href) sheetHrefs.add(href);
+    }
   }
   // Normalize self-hosted or duplicate KaTeX stylesheets to a single allowlisted CDN link
   // so pages don't download 60-120 redundant .woff2/.woff/.ttf KaTeX font files.
@@ -305,6 +334,46 @@ export function prepareDocument(doc, base) {
   }
   for (const el of doc.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^="sp_message_container"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role="dialog"][aria-label*="Subscribe" i], [class*="subscribeDialog"], iframe[width="0"][height="0"], iframe.channel-frame')) {
     el.remove();
+  }
+  for (const el of doc.querySelectorAll("mdn-dropdown[loaded]")) {
+    el.removeAttribute("loaded");
+  }
+  // Convert <object data="...svg"> and <embed src="...svg"> image embeds into <img>
+  // so Spacesheep's object-src 'none' Content-Security-Policy doesn't block figures (e.g. ArXiv HTML).
+  for (const el of doc.querySelectorAll("object[data], embed[src]")) {
+    const isEmbed = el.tagName.toLowerCase() === "embed";
+    const rawUrl = (el.getAttribute(isEmbed ? "src" : "data") || "").trim();
+    const type = (el.getAttribute("type") || "").trim().toLowerCase();
+    if (!rawUrl) continue;
+    const isImage = type.startsWith("image/") || /\.(?:svg|png|jpe?g|gif|webp|avif|bmp|ico)(?:[?#]|$)/i.test(rawUrl);
+    if (!isImage) continue;
+    const img = ownerDoc.createElement("img");
+    img.setAttribute("src", rawUrl);
+    for (const attr of ["id", "class", "style", "width", "height", "title", "alt", "aria-label"]) {
+      if (el.hasAttribute(attr)) img.setAttribute(attr, el.getAttribute(attr));
+    }
+    if (!img.hasAttribute("alt")) {
+      const fallbackText = (el.textContent || "").trim();
+      if (fallbackText) img.setAttribute("alt", fallbackText);
+    }
+    el.replaceWith(img);
+  }
+  // Replace live-rendered <canvas data-snapshot-src="data:image/png;base64,..."> with static <img>
+  for (const canvas of doc.querySelectorAll("canvas[data-snapshot-src]")) {
+    const dataUrl = (canvas.getAttribute("data-snapshot-src") || "").trim();
+    if (!dataUrl.startsWith("data:image/")) continue;
+    const img = ownerDoc.createElement("img");
+    img.setAttribute("src", dataUrl);
+    for (const attr of ["id", "class", "style", "width", "height", "title", "aria-label"]) {
+      if (canvas.hasAttribute(attr)) img.setAttribute(attr, canvas.getAttribute(attr));
+    }
+    const w = canvas.getAttribute("data-snapshot-width");
+    const h = canvas.getAttribute("data-snapshot-height");
+    if (w && h && !/\bwidth\s*:/i.test(img.getAttribute("style") || "")) {
+      const prevStyle = img.getAttribute("style") ? img.getAttribute("style").replace(/;?\s*$/, "; ") : "";
+      img.setAttribute("style", `${prevStyle}width: ${w}px; height: ${h}px;`);
+    }
+    canvas.replaceWith(img);
   }
   for (const img of doc.querySelectorAll("img, source")) {
     const src = (img.getAttribute("src") || "").trim();
@@ -370,8 +439,11 @@ export function prepareDocument(doc, base) {
   for (const el of doc.querySelectorAll('meta[http-equiv="content-security-policy" i], meta[http-equiv="refresh" i]')) el.remove();
   for (const el of doc.querySelectorAll('meta[charset], meta[http-equiv="content-type" i]')) el.remove();
   if (doc.head) {
-    const charset = doc.createElement("meta");
+    const charset = ownerDoc.createElement("meta");
     charset.setAttribute("charset", "utf-8");
     doc.head.prepend(charset);
+  }
+  for (const tpl of doc.querySelectorAll("template[shadowrootmode], template[shadowroot]")) {
+    if (tpl.content) prepareDocument(tpl.content, base, ownerDoc);
   }
 }

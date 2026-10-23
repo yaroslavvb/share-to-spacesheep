@@ -110,8 +110,10 @@ export async function captureWeb(doc, pageUrl, read, limits, onStep = () => {}, 
     }
     const key = urlKey(url);
     if (isAllowedCdnAsset(url, kind)) {
-      if (!resources.has(key)) {
-        resources.set(key, { key, externalUrl: url.href });
+      if (url.protocol === "http:") url.protocol = "https:";
+      const httpsKey = urlKey(url);
+      if (!resources.has(httpsKey)) {
+        resources.set(httpsKey, { key: httpsKey, externalUrl: url.href });
       }
       return url.href;
     }
