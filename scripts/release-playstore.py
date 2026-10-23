@@ -302,6 +302,8 @@ def main():
 
     if args.set_google_group and not args.bump:
         grp = args.set_google_group.strip()
+        if "@" not in grp:
+            grp = f"{grp}@googlegroups.com"
         print(f"👥 Setting Google Group '{grp}' on track '{args.track}'...")
         api_request(
             token,
