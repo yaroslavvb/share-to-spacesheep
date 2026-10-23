@@ -65,7 +65,7 @@ def resolveMonotonicVersionCode = { int minCode ->
 }
 
 def latestStableSdk = resolveLatestStableSdk(37)
-def autoVersionCode = resolveMonotonicVersionCode(9)
+def autoVersionCode = resolveMonotonicVersionCode(13)
 def isReleaseTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
 def includeSeedKey = project.hasProperty("seedKey") && project.property("seedKey").toString().toBoolean()
 
@@ -137,6 +137,13 @@ tasks.matching { it.name == "bundleRelease" }.configureEach {
             logger.lifecycle("Synced signed Play Store bundle (API ${latestStableSdk}, versionCode ${android.defaultConfig.versionCode}) -> play-store/sheepit-v${vName}.aab & play-store/sheepit-latest.aab")
         }
     }
+}
+
+tasks.register("publishPlayStore", Exec) {
+    group = "publishing"
+    description = "Bumps versionCode, builds signed release AAB, and uploads to Google Play Store (default: internal track)."
+    workingDir = rootProject.projectDir
+    commandLine "python3", "${rootProject.projectDir}/scripts/release-playstore.py", "--bump"
 }
 
 dependencies {
