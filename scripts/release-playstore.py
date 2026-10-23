@@ -345,34 +345,37 @@ def main():
     release_name = f"{uploaded_vc} ({local_vname})"
     release_notes = [{"language": "en-US", "text": args.notes[:500]}] if args.notes else []
 
-    def update_track(status_to_use: str):
-        track_body = {
-            "track": args.track,
-            "releases": [
-                {
-                    "name": release_name,
-                    "versionCodes": [str(uploaded_vc)],
-                    "status": status_to_use,
-                    "releaseNotes": release_notes,
-                }
-            ],
-        }
-        return api_request(
-            token,
-            "PUT",
-            f"{API_BASE}/edits/{edit_id}/tracks/{args.track}",
-            data=track_body,
-        )
+    target_tracks = ["internal", "alpha"] if args.track == "internal" else [args.track]
 
-    print(f"🛤️  Assigning versionCode {uploaded_vc} to track '{args.track}' (status='{args.status}')...")
-    try:
-        update_track(args.status)
-    except RuntimeError as e:
-        if args.status != "draft" and ("draft" in str(e).lower() or "HTTP 400" in str(e)):
-            print("⚠️  App is still in draft state on Play Console; retrying track assignment with status='draft'...")
-            update_track("draft")
-        else:
-            raise
+    for tname in target_tracks:
+        def update_single_track(tr: str, status_to_use: str):
+            track_body = {
+                "track": tr,
+                "releases": [
+                    {
+                        "name": release_name,
+                        "versionCodes": [str(uploaded_vc)],
+                        "status": status_to_use,
+                        "releaseNotes": release_notes,
+                    }
+                ],
+            }
+            return api_request(
+                token,
+                "PUT",
+                f"{API_BASE}/edits/{edit_id}/tracks/{tr}",
+                data=track_body,
+            )
+
+        print(f"🛤️  Assigning versionCode {uploaded_vc} to track '{tname}' (status='{args.status}')...")
+        try:
+            update_single_track(tname, args.status)
+        except RuntimeError as e:
+            if args.status != "draft" and ("draft" in str(e).lower() or "HTTP 400" in str(e)):
+                print(f"⚠️  Track '{tname}' requires draft status; retrying with status='draft'...")
+                update_single_track(tname, "draft")
+            else:
+                raise
 
     print("🚀 Committing edit on Google Play...")
     try:
@@ -389,7 +392,9 @@ def main():
             raise
 
     print(
-        f"\n🎉 SUCCESS! SheepIt v{local_vname} (versionCode {uploaded_vc}) is now published to the '{args.track}' track!\n"
+        f"\n🎉 SUCCESS! SheepIt v{local_vname} (versionCode {uploaded_vc}) is now published to {target_tracks}!\n"
+        f"🔗 Self-serve Closed testing (Google Group): https://play.google.com/apps/testing/{PACKAGE_NAME}\n"
+        f"🔗 Google Play Store page: https://play.google.com/store/apps/details?id={PACKAGE_NAME}\n"
         f"🔗 Internal testing link: {INTERNAL_TEST_URL}"
     )
 
