@@ -162,8 +162,8 @@ def bump_gradle_version_floor(new_floor: int, new_version_name: str = None):
 
 
 def build_aab(version_code: int, version_name: str) -> Path:
-    print("🔨 Building signed release Android App Bundle (./gradlew bundleRelease)...")
-    subprocess.run(["./gradlew", "bundleRelease"], cwd=REPO_ROOT, check=True)
+    print("🔨 Building signed release Android App Bundle & APK (./gradlew bundleRelease assembleRelease)...")
+    subprocess.run(["./gradlew", "bundleRelease", "assembleRelease"], cwd=REPO_ROOT, check=True)
     if not AAB_PATH.is_file():
         raise FileNotFoundError(f"Expected signed bundle at {AAB_PATH}, but it was not found.")
     versioned_copy = REPO_ROOT / "play-store" / f"sheepit-v{version_name}-vc{version_code}.aab"

@@ -139,6 +139,28 @@ tasks.matching { it.name == "bundleRelease" }.configureEach {
     }
 }
 
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    doLast {
+        def apkFile = file("${buildDir}/outputs/apk/release/app-release.apk")
+        if (apkFile.exists() && !includeSeedKey) {
+            def playStoreDir = rootProject.file("play-store")
+            playStoreDir.mkdirs()
+            def vName = android.defaultConfig.versionName
+            copy {
+                from apkFile
+                into playStoreDir
+                rename { "sheepit-v${vName}.apk" }
+            }
+            copy {
+                from apkFile
+                into playStoreDir
+                rename { "sheepit-latest.apk" }
+            }
+            logger.lifecycle("Synced signed release APK (API ${latestStableSdk}, versionCode ${android.defaultConfig.versionCode}) -> play-store/sheepit-v${vName}.apk & play-store/sheepit-latest.apk")
+        }
+    }
+}
+
 tasks.register("publishPlayStore", Exec) {
     group = "publishing"
     description = "Bumps versionCode, builds signed release AAB, and uploads to Google Play Store (default: internal track)."
