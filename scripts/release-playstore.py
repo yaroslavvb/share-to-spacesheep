@@ -235,6 +235,11 @@ def main():
         help="Only verify Play Store API authentication and list current tracks/releases without uploading",
     )
     parser.add_argument(
+        "--set-google-group",
+        default=None,
+        help="Set a Google Group (e.g. sheepit-testers@googlegroups.com) on the testing track so anyone who joins the group gets instant Play Store test access without manual email entry",
+    )
+    parser.add_argument(
         "--key",
         default=os.environ.get("PLAY_STORE_JSON_KEY", DEFAULT_KEY_PATH),
         help=f"Path to Google Play Service Account JSON key (default: {DEFAULT_KEY_PATH})",
@@ -250,7 +255,7 @@ def main():
         local_vc, local_vname = read_gradle_version_info()
 
     built_aab = AAB_PATH
-    if not args.check_only and not args.no_build:
+    if not args.check_only and not args.no_build and not (args.set_google_group and not args.bump):
         built_aab = build_aab(local_vc, local_vname)
 
     with open(args.key, "r", encoding="utf-8") as f:
@@ -279,11 +284,37 @@ def main():
     tracks_resp = api_request(token, "GET", f"{API_BASE}/edits/{edit_id}/tracks")
     print(f"📊 Highest versionCode currently in Play Library: {max_remote_vc or 'none'}")
     for tr in tracks_resp.get("tracks", []):
+        tname = tr.get("track")
         rels = tr.get("releases", [])
         if rels:
             vcs = [vc for r in rels for vc in r.get("versionCodes", [])]
             statuses = [r.get("status") for r in rels]
-            print(f"   • Track '{tr.get('track')}': versionCodes={vcs} status={statuses}")
+            testers_info = ""
+            if tname in ("internal", "alpha", "beta"):
+                try:
+                    t_resp = api_request(token, "GET", f"{API_BASE}/edits/{edit_id}/testers/{tname}")
+                    groups = t_resp.get("googleGroups", [])
+                    if groups:
+                        testers_info = f" googleGroups={groups}"
+                except Exception:
+                    pass
+            print(f"   • Track '{tname}': versionCodes={vcs} status={statuses}{testers_info}")
+
+    if args.set_google_group and not args.bump:
+        grp = args.set_google_group.strip()
+        print(f"👥 Setting Google Group '{grp}' on track '{args.track}'...")
+        api_request(
+            token,
+            "PUT",
+            f"{API_BASE}/edits/{edit_id}/testers/{args.track}",
+            data={"googleGroups": [grp]},
+        )
+        try:
+            api_request(token, "POST", f"{API_BASE}/edits/{edit_id}:commit")
+        except RuntimeError:
+            api_request(token, "POST", f"{API_BASE}/edits/{edit_id}:commit?changesNotSentForReview=true")
+        print(f"✅ Linked Google Group '{grp}' to track '{args.track}'! Anyone who joins that group can install from {INTERNAL_TEST_URL}")
+        return
 
     if args.check_only:
         api_request(token, "DELETE", f"{API_BASE}/edits/{edit_id}")
