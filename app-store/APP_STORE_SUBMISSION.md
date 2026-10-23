@@ -1,10 +1,16 @@
 # SheepIt — Apple App Store Submission Guide (`v0.6.3`, Build `10`)
 
+**Verified Fri 23 Oct 2026 (week 43):** development and distribution signing are configured on the M5; `0.6.3` (10) was installed and launched on the iPad, archived, exported, and uploaded to App Store Connect. Apple finished processing it and shows **Ready to Submit**. The **Public Testers** external group exists. Beta description, review contact information, and dedicated demo credentials still need completion before beta review and a public TestFlight link.
+
+The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was already taken. The installed app still displays **SheepIt**.
+
 ## 1. Key Identifiers & Configuration
 
 | Field | Value |
 | :--- | :--- |
-| **App Name** | `SheepIt` |
+| **App Store Connect Name** | `SheepIt for Spacesheep` |
+| **App Store Connect Apple ID** | `6826441269` |
+| **Installed App Name** | `SheepIt` |
 | **Subtitle (30 chars max)** | `Share pages & files to Spacesheep` |
 | **Main App Bundle ID** | `com.yaroslavvb.sheepit` |
 | **Share Extension Bundle ID** | `com.yaroslavvb.sheepit.ShareExtension` |
@@ -47,13 +53,15 @@ DEVELOPMENT_TEAM=YOUR_TEAM_ID ./ios/build-appstore.sh
 ```
 This automatically calculates a monotonically increasing `CFBundleVersion` from the git commit count, archives `SheepIt`, and exports a signed `.ipa` into `app-store/export/`.
 
+This script exports the `.ipa`; it does not upload it. Use Xcode Organizer to upload the archive, or run `xcodebuild -exportArchive` with an export-options file whose `destination` is `upload`. Keep Apple's system directories first in `PATH` during export/upload: a Homebrew `rsync` peer rejects Apple's extended-attributes option and causes a `Copy failed` export error. The script already applies this for export. Archives and generated exports are ignored by git.
+
 ---
 
 ## 3. Step-by-Step: Create & Submit the Listing in App Store Connect
 
-1. Go to [App Store Connect → Apps](https://appstoreconnect.apple.com/apps) and click **+ → New App**:
+1. The app record already exists: open [SheepIt for Spacesheep in App Store Connect](https://appstoreconnect.apple.com/apps/6826441269/distribution) (requires access to the developer account). Its creation values are:
    - **Platforms**: iOS
-   - **Name**: `SheepIt`
+   - **Name**: `SheepIt for Spacesheep`
    - **Primary Language**: English (U.S.)
    - **Bundle ID**: Select `com.yaroslavvb.sheepit`
    - **SKU**: `sheepit-ios-001`
