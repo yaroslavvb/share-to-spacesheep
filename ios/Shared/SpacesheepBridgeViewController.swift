@@ -1,8 +1,9 @@
 import UIKit
 import WebKit
 import UniformTypeIdentifiers
+import AuthenticationServices
 
-@objc public class SpacesheepBridgeViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, UIDocumentPickerDelegate {
+@objc public class SpacesheepBridgeViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, UIDocumentPickerDelegate, ASWebAuthenticationPresentationContextProviding {
 
     public var isShareExtension: Bool = false
     private var mainWebView: WKWebView!
@@ -10,6 +11,12 @@ import UniformTypeIdentifiers
     private var sharedPayloadJson: String = "{\"mode\":\"launcher\"}"
     private var pendingSnapshotId: Int = 0
     private var captureTimeoutWorkItem: DispatchWorkItem?
+    private var nextOAuthId: Int = 1
+    private var activeOAuthId: Int = 0
+    private var authSession: ASWebAuthenticationSession?
+    private var isBackgroundSyncing: Bool = false
+    private var pendingDismissExtension: Bool = false
+    private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
 
     private static let appGroupSuite = "group.com.yaroslavvb.sheepit"
     private static let storageDictKey = "spacesheep_storage_dict_v1"
@@ -53,8 +60,17 @@ import UniformTypeIdentifiers
           fetchSnapshotAsset: function(id, url, maxBytes) {
             return this._call("fetchSnapshotAsset", [Number(id), String(url), Number(maxBytes || 26214400)]);
           },
+          resetPageSnapshot: function() {
+            return this._call("resetPageSnapshot", []);
+          },
           resetSnapshotWebView: function() {
             return this._call("resetSnapshotWebView", []);
+          },
+          prepareOAuthLoopback: function() {
+            return this._call("prepareOAuthLoopback", []);
+          },
+          launchOAuthLoopback: function(id, authorizeUrl) {
+            return this._call("launchOAuthLoopback", [Number(id), String(authorizeUrl || "")]);
           },
           pickFiles: function() { return this._call("pickFiles", []); },
           copyToClipboard: function(t) { return this._call("copyToClipboard", [String(t || "")]); },
@@ -118,12 +134,39 @@ import UniformTypeIdentifiers
     }
 
     @objc private func dismissExtension() {
+        if isBackgroundSyncing && !pendingDismissExtension {
+            pendingDismissExtension = true
+            UIView.animate(withDuration: 0.2) {
+                self.view.alpha = 0.0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+                guard let self = self, self.pendingDismissExtension else { return }
+                self.pendingDismissExtension = false
+                self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            }
+            return
+        }
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+
+    public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        return self.view.window ?? ASPresentationAnchor()
     }
 
     public func handleIncomingUrl(_ url: URL) {
         guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
         if comps.scheme == "spacesheepshare" {
+            if comps.host == "oauth" || comps.path.contains("callback") || comps.queryItems?.contains(where: { $0.name == "code" || $0.name == "error" }) == true {
+                if activeOAuthId != 0, mainWebView != nil {
+                    let cbId = activeOAuthId
+                    activeOAuthId = 0
+                    authSession?.cancel()
+                    authSession = nil
+                    let outJson = Self.jsonString(["id": cbId, "url": url.absoluteString])
+                    mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(outJson));", completionHandler: nil)
+                }
+                return
+            }
             let targetUrl = comps.queryItems?.first(where: { $0.name == "url" })?.value ?? ""
             let title = comps.queryItems?.first(where: { $0.name == "title" })?.value ?? ""
             let spaceUuid = comps.queryItems?.first(where: { $0.name == "space_uuid" })?.value ?? ""
@@ -215,6 +258,14 @@ import UniformTypeIdentifiers
 
     // MARK: - Share Extension Input Extraction
 
+    private static func readSecurityScopedData(from url: URL) -> Data? {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed { url.stopAccessingSecurityScopedResource() }
+        }
+        return try? Data(contentsOf: url)
+    }
+
     private func extractShareExtensionItems(from context: NSExtensionContext, completion: @escaping (String) -> Void) {
         guard let items = context.inputItems as? [NSExtensionItem], !items.isEmpty else {
             completion("{\"mode\":\"launcher\"}")
@@ -224,33 +275,58 @@ import UniformTypeIdentifiers
         var foundUrl: String?
         var foundTitle: String = ""
         var fileObjects: [[String: Any]] = []
+        let lock = NSLock()
         let group = DispatchGroup()
 
         for item in items {
-            if let attrTitle = item.attributedContentText?.string, !attrTitle.isEmpty, foundTitle.isEmpty {
-                foundTitle = attrTitle
+            if let attrTitle = item.attributedContentText?.string, !attrTitle.isEmpty {
+                lock.lock()
+                if foundTitle.isEmpty { foundTitle = attrTitle }
+                lock.unlock()
             }
             guard let attachments = item.attachments else { continue }
             for provider in attachments {
-                if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
+                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
+                    group.enter()
+                    provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier, options: nil) { data, _ in
+                        defer { group.leave() }
+                        if let dict = data as? NSDictionary,
+                           let results = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary {
+                            lock.lock()
+                            if let u = results["URL"] as? String ?? results["baseURI"] as? String, !u.isEmpty, foundUrl == nil {
+                                foundUrl = u
+                            }
+                            if let t = results["title"] as? String, !t.isEmpty, foundTitle.isEmpty {
+                                foundTitle = t
+                            }
+                            lock.unlock()
+                        }
+                    }
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     group.enter()
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { data, _ in
                         defer { group.leave() }
                         if let url = data as? URL {
                             if url.isFileURL {
-                                if let fileData = try? Data(contentsOf: url) {
+                                if let fileData = Self.readSecurityScopedData(from: url) {
+                                    lock.lock()
                                     fileObjects.append([
                                         "name": url.lastPathComponent,
                                         "type": Self.mimeType(for: url.pathExtension),
                                         "size": fileData.count,
                                         "base64": fileData.base64EncodedString()
                                     ])
+                                    lock.unlock()
                                 }
                             } else {
+                                lock.lock()
                                 foundUrl = url.absoluteString
+                                lock.unlock()
                             }
                         } else if let str = data as? String, let url = Self.extractFirstHttpUrl(from: str) {
+                            lock.lock()
                             foundUrl = url
+                            lock.unlock()
                         }
                     }
                 } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
@@ -259,14 +335,18 @@ import UniformTypeIdentifiers
                         defer { group.leave() }
                         if let str = data as? String {
                             if let url = Self.extractFirstHttpUrl(from: str) {
+                                lock.lock()
                                 if foundUrl == nil { foundUrl = url }
+                                lock.unlock()
                             } else if let textData = str.data(using: .utf8) {
+                                lock.lock()
                                 fileObjects.append([
                                     "name": "shared-note.txt",
                                     "type": "text/plain",
                                     "size": textData.count,
                                     "base64": textData.base64EncodedString()
                                 ])
+                                lock.unlock()
                             }
                         }
                     }
@@ -275,20 +355,24 @@ import UniformTypeIdentifiers
                     group.enter()
                     provider.loadItem(forTypeIdentifier: typeId, options: nil) { data, _ in
                         defer { group.leave() }
-                        if let url = data as? URL, let fileData = try? Data(contentsOf: url) {
+                        if let url = data as? URL, let fileData = Self.readSecurityScopedData(from: url) {
+                            lock.lock()
                             fileObjects.append([
                                 "name": url.lastPathComponent,
                                 "type": Self.mimeType(for: url.pathExtension),
                                 "size": fileData.count,
                                 "base64": fileData.base64EncodedString()
                             ])
+                            lock.unlock()
                         } else if let image = data as? UIImage, let pngData = image.pngData() {
+                            lock.lock()
                             fileObjects.append([
                                 "name": "shared-image.png",
                                 "type": "image/png",
                                 "size": pngData.count,
                                 "base64": pngData.base64EncodedString()
                             ])
+                            lock.unlock()
                         }
                     }
                 }
@@ -441,9 +525,22 @@ import UniformTypeIdentifiers
             completionHandler("")
             performFetchSnapshotAsset(assetId: assetId, urlStr: urlStr, maxBytes: maxBytes)
 
-        case "resetSnapshotWebView":
+        case "resetPageSnapshot", "resetSnapshotWebView":
             completionHandler("")
             performResetSnapshotWebView()
+
+        case "prepareOAuthLoopback":
+            let oauthId = nextOAuthId
+            nextOAuthId += 1
+            activeOAuthId = oauthId
+            let info = Self.jsonString(["id": oauthId, "redirectUri": "spacesheepshare://oauth/callback"])
+            completionHandler(info)
+
+        case "launchOAuthLoopback":
+            let oauthId = args.count > 0 ? ((args[0] as? NSNumber)?.intValue ?? activeOAuthId) : activeOAuthId
+            let authorizeUrlStr = args.count > 1 ? (args[1] as? String ?? "") : ""
+            completionHandler("")
+            performLaunchOAuth(oauthId: oauthId, authorizeUrlStr: authorizeUrlStr)
 
         case "copyToClipboard":
             let text = args.first as? String ?? ""
@@ -460,6 +557,21 @@ import UniformTypeIdentifiers
         case "reportStatus":
             let statusJson = args.first as? String ?? "{}"
             NSLog("[ShareToSpacesheepStatus] %@", statusJson)
+            if let sData = statusJson.data(using: .utf8),
+               let sObj = try? JSONSerialization.jsonObject(with: sData) as? [String: Any] {
+                let stage = sObj["stage"] as? String ?? ""
+                let bgSync = (sObj["backgroundSyncing"] as? Bool) ?? false
+                self.isBackgroundSyncing = bgSync
+                if stage == "working" || bgSync {
+                    self.beginBackgroundTaskIfNeeded()
+                } else if stage == "complete" || stage == "error" || (stage == "done" && !bgSync) {
+                    self.endBackgroundTaskIfNeeded()
+                    if self.pendingDismissExtension {
+                        self.pendingDismissExtension = false
+                        self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+                    }
+                }
+            }
             if let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 let statusFile = docsDir.appendingPathComponent("last_status.json")
                 try? statusJson.write(to: statusFile, atomically: true, encoding: .utf8)
@@ -478,10 +590,70 @@ import UniformTypeIdentifiers
         }
     }
 
+    private func performLaunchOAuth(oauthId: Int, authorizeUrlStr: String) {
+        guard let url = URL(string: authorizeUrlStr) else {
+            let errJson = Self.jsonString(["id": oauthId, "error": "Invalid OAuth authorize URL"])
+            mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(errJson));", completionHandler: nil)
+            return
+        }
+        activeOAuthId = oauthId
+        authSession?.cancel()
+        let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "spacesheepshare") { [weak self] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.authSession = nil
+                guard self.activeOAuthId == oauthId else { return }
+                self.activeOAuthId = 0
+                if let cb = callbackURL {
+                    let outJson = Self.jsonString(["id": oauthId, "url": cb.absoluteString])
+                    self.mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(outJson));", completionHandler: nil)
+                } else {
+                    let errMsg = error?.localizedDescription ?? "Sign-in cancelled"
+                    let outJson = Self.jsonString(["id": oauthId, "error": errMsg])
+                    self.mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(outJson));", completionHandler: nil)
+                }
+            }
+        }
+        session.presentationContextProvider = self
+        session.prefersEphemeralWebBrowserSession = false
+        self.authSession = session
+        if !session.start() {
+            openUrlExternally(url)
+        }
+    }
+
+    private func beginBackgroundTaskIfNeeded() {
+        guard !isShareExtension, bgTaskId == .invalid else { return }
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let app = r as? UIApplication {
+                bgTaskId = app.beginBackgroundTask(withName: "SheepItBackgroundSync") { [weak self] in
+                    self?.endBackgroundTaskIfNeeded()
+                }
+                break
+            }
+            responder = r.next
+        }
+    }
+
+    private func endBackgroundTaskIfNeeded() {
+        guard !isShareExtension, bgTaskId != .invalid else { return }
+        let taskToEnd = bgTaskId
+        bgTaskId = .invalid
+        var responder: UIResponder? = self
+        while let r = responder {
+            if let app = r as? UIApplication {
+                app.endBackgroundTask(taskToEnd)
+                break
+            }
+            responder = r.next
+        }
+    }
+
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         var arr: [[String: Any]] = []
         for u in urls {
-            if let data = try? Data(contentsOf: u) {
+            if let data = Self.readSecurityScopedData(from: u) {
                 arr.append([
                     "name": u.lastPathComponent,
                     "type": Self.mimeType(for: u.pathExtension),

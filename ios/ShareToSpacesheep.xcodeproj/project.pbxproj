@@ -12,6 +12,10 @@
 		A10000030000000000000001 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000030000000000000001 /* ShareViewController.swift */; };
 		A10000040000000000000001 /* SpacesheepBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000020000000000000001 /* SpacesheepBridgeViewController.swift */; };
 		A10000050000000000000001 /* ShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A30000020000000000000001 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000060000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000001 /* Assets.xcassets */; };
+		A10000070000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000001 /* PrivacyInfo.xcprivacy */; };
+		A10000080000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000001 /* Assets.xcassets */; };
+		A10000090000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000001 /* PrivacyInfo.xcprivacy */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -44,6 +48,10 @@
 		A20000030000000000000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = "<group>"; };
 		A20000040000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = App/Info.plist; sourceTree = "<group>"; };
 		A20000050000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = "<group>"; };
+		A20000060000000000000001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Shared/Assets.xcassets; sourceTree = "<group>"; };
+		A20000070000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Shared/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		A20000080000000000000001 /* SheepIt.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App/SheepIt.entitlements; sourceTree = "<group>"; };
+		A20000090000000000000001 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension/ShareExtension.entitlements; sourceTree = "<group>"; };
 		A30000010000000000000001 /* ShareToSpacesheep.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ShareToSpacesheep.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000020000000000000001 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -71,9 +79,13 @@
 			children = (
 				A20000010000000000000001 /* AppDelegate.swift */,
 				A20000040000000000000001 /* Info.plist */,
+				A20000080000000000000001 /* SheepIt.entitlements */,
 				A20000020000000000000001 /* SpacesheepBridgeViewController.swift */,
+				A20000060000000000000001 /* Assets.xcassets */,
+				A20000070000000000000001 /* PrivacyInfo.xcprivacy */,
 				A20000030000000000000001 /* ShareViewController.swift */,
 				A20000050000000000000001 /* Info.plist */,
+				A20000090000000000000001 /* ShareExtension.entitlements */,
 				A80000020000000000000001 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -96,6 +108,7 @@
 			buildPhases = (
 				AA0000010000000000000001 /* Sources */,
 				A70000010000000000000001 /* Frameworks */,
+				AR0000010000000000000001 /* Resources */,
 				AB0000010000000000000001 /* Copy WebAssets */,
 				A60000010000000000000001 /* Embed App Extensions */,
 			);
@@ -115,6 +128,7 @@
 			buildPhases = (
 				AA0000020000000000000001 /* Sources */,
 				A70000020000000000000001 /* Frameworks */,
+				AR0000020000000000000001 /* Resources */,
 				AB0000020000000000000001 /* Copy WebAssets */,
 			);
 			buildRules = (
@@ -155,6 +169,27 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		AR0000010000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000060000000000000001 /* Assets.xcassets in Resources */,
+				A10000070000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AR0000020000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000080000000000000001 /* Assets.xcassets in Resources */,
+				A10000090000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXShellScriptBuildPhase section */
 		AB0000010000000000000001 /* Copy WebAssets */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -168,7 +203,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets\"\ncp -R \"${SRCROOT}/../app/src/main/assets/\"* \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/\"\nif [ -f \"${HOME}/.config/spacesheep/config.json\" ] && [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  python3 -c 'import json,os; p=os.path.expanduser(\"~/.config/spacesheep/config.json\"); d=json.load(open(p)); print(d.get(\"key\",\"\"), end=\"\")' > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" || true\nelse\n  rm -f \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\"\nfi\n";
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets\"\ncp -R \"${SRCROOT}/../app/src/main/assets/\"* \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/\"\nif [ -f \"${HOME}/.config/spacesheep/config.json\" ] && [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  python3 -c 'import json,os; p=os.path.expanduser(\"~/.config/spacesheep/config.json\"); d=json.load(open(p)); print(d.get(\"key\",\"\"), end=\"\")' > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" || true\nelse\n  rm -f \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/default_key.txt\"\nfi\n";
 		};
 		AB0000020000000000000001 /* Copy WebAssets */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -182,7 +217,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets\"\ncp -R \"${SRCROOT}/../app/src/main/assets/\"* \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/\"\nif [ -f \"${HOME}/.config/spacesheep/config.json\" ] && [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  python3 -c 'import json,os; p=os.path.expanduser(\"~/.config/spacesheep/config.json\"); d=json.load(open(p)); print(d.get(\"key\",\"\"), end=\"\")' > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" || true\nelse\n  rm -f \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\"\nfi\n";
+			shellScript = "mkdir -p \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets\"\ncp -R \"${SRCROOT}/../app/src/main/assets/\"* \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/\"\nif [ -f \"${HOME}/.config/spacesheep/config.json\" ] && [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  python3 -c 'import json,os; p=os.path.expanduser(\"~/.config/spacesheep/config.json\"); d=json.load(open(p)); print(d.get(\"key\",\"\"), end=\"\")' > \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" || true\nelse\n  rm -f \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/default_key.txt\" \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebAssets/default_key.txt\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -248,15 +283,17 @@
 		AE0000010000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/SheepIt.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -267,15 +304,17 @@
 		AE0000020000000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = App/SheepIt.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -286,8 +325,10 @@
 		AF0000010000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -295,7 +336,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -307,8 +348,10 @@
 		AF0000020000000000000001 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 10;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = ShareExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -316,7 +359,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 0.6.1;
+				MARKETING_VERSION = 0.6.3;
 				PRODUCT_BUNDLE_IDENTIFIER = com.yaroslavvb.sheepit.ShareExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

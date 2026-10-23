@@ -1,0 +1,16 @@
+SheepIt uploads whatever you're looking at—any webpage in Chrome or any file on your device—straight to your Spacesheep (spacesheep.dev) in about a second.
+
+Unofficial third-party community companion app for spacesheep.dev. Not built by, affiliated with, or endorsed by the Spacesheep team.
+
+HOW IT WORKS
+1. In Chrome (or any browser/app on Android), tap Share → SheepIt.
+2. SheepIt captures the page along with its stylesheets, images, math equations (KaTeX/MathJax), and streaming media, packages it into a self-contained space, and publishes it to your Spacesheep account.
+3. The live spacesheep.dev link is automatically copied to your clipboard in ~1 second so you can paste and share it right away.
+
+KEY FEATURES
+• Instant 1-Second Share Pipeline: Two-wave progressive capture puts the live link in your clipboard in ~1 second while high-resolution assets finish syncing in the background.
+• Full Self-Contained Web Snapshots: Bundles page stylesheets, diagrams, and images into _assets/ so shared pages stay readable and faithfully formatted.
+• Files, PDFs, Images & Notes: Share PDFs (rendered into fast interactive pages), images, videos, audio, Markdown, CSV, or JSON files directly from your device.
+• One-Tap Access Control: Switch any published space between Only me (private), Signed-in, or Public right from the confirmation sheet.
+• Smart Updates: Sharing the same URL again updates your existing space in place (with an option to publish as a new space instead).
+• Privacy-First & Open Source: No analytics, no ads, and no tracking. Your OAuth token or API key stays on your device and talks directly to mcp.spacesheep.dev over HTTPS.
