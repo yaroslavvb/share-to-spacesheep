@@ -40,7 +40,9 @@ xcodebuild archive \
 echo "Archive created at: $ARCHIVE_PATH"
 
 if [ -n "${DEVELOPMENT_TEAM:-}" ]; then
-  xcodebuild -exportArchive \
+  # Apple's rsync starts a peer through PATH. A Homebrew rsync peer rejects
+  # Apple's --extended-attributes flag and makes IPA export fail with "Copy failed".
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportOptionsPlist "$ROOT_DIR/app-store/ExportOptions.plist" \
     -exportPath "$EXPORT_DIR" \
