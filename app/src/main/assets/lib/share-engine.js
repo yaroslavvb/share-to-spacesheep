@@ -556,7 +556,7 @@ export async function publishPage(
     version_name: `${uuid ? "Updated" : "Moved"} from SheepIt`,
   };
   if (uuid) {
-    args.uuid = uuid;
+    Object.assign(args, { uuid, title: page.title });
   } else {
     Object.assign(args, { title: page.title, emoji: EMOJI[page.kind] || "📄" });
   }
