@@ -6,24 +6,17 @@ import AuthenticationServices
 @objc public class SpacesheepBridgeViewController: UIViewController, WKUIDelegate, WKNavigationDelegate, UIDocumentPickerDelegate, ASWebAuthenticationPresentationContextProviding {
 
     public var isShareExtension: Bool = false
-    private var mainWebView: WKWebView!
-    private var captureWebView: WKWebView?
-    private var sharedPayloadJson: String = "{\"mode\":\"launcher\"}"
-    private var pendingSnapshotId: Int = 0
-    private var captureTimeoutWorkItem: DispatchWorkItem?
-    private var nextOAuthId: Int = 1
-    private var activeOAuthId: Int = 0
-    private var authSession: ASWebAuthenticationSession?
-    private var isBackgroundSyncing: Bool = false
-    private var pendingDismissExtension: Bool = false
-    private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
-
-    private static let appGroupSuite = "group.com.yaroslavvb.sheepit"
-    private static let storageDictKey = "spacesheep_storage_dict_v1"
-
-    private var prefs: UserDefaults {
-        return UserDefaults(suiteName: Self.appGroupSuite) ?? UserDefaults.standard
-    }
+    var mainWebView: WKWebView!
+    var captureWebView: WKWebView?
+    var sharedPayloadJson: String = "{\"mode\":\"launcher\"}"
+    var pendingSnapshotId: Int = 0
+    var captureTimeoutWorkItem: DispatchWorkItem?
+    var nextOAuthId: Int = 1
+    var activeOAuthId: Int = 0
+    var authSession: ASWebAuthenticationSession?
+    var isBackgroundSyncing: Bool = false
+    var pendingDismissExtension: Bool = false
+    var bgTaskId: UIBackgroundTaskIdentifier = .invalid
 
     public override func viewDidLoad() {
         super.viewDidLoad()
@@ -51,9 +44,6 @@ import AuthenticationServices
           fetchBinaryAsync: function(id, url, maxBytes) {
             return this._call("fetchBinaryAsync", [Number(id), String(url), Number(maxBytes || 26214400)]);
           },
-          fetchBinaryBase64: function(url, maxBytes) {
-            return this._call("fetchBinaryBase64", [String(url), Number(maxBytes || 26214400)]);
-          },
           renderPageSnapshot: function(id, url, timeoutMs) {
             return this._call("renderPageSnapshot", [Number(id), String(url), Number(timeoutMs || 5500)]);
           },
@@ -62,9 +52,6 @@ import AuthenticationServices
           },
           resetPageSnapshot: function() {
             return this._call("resetPageSnapshot", []);
-          },
-          resetSnapshotWebView: function() {
-            return this._call("resetSnapshotWebView", []);
           },
           prepareOAuthLoopback: function() {
             return this._call("prepareOAuthLoopback", []);
@@ -154,39 +141,36 @@ import AuthenticationServices
     }
 
     public func handleIncomingUrl(_ url: URL) {
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
-        if comps.scheme == "spacesheepshare" {
-            if comps.host == "oauth" || comps.path.contains("callback") || comps.queryItems?.contains(where: { $0.name == "code" || $0.name == "error" }) == true {
-                if activeOAuthId != 0, mainWebView != nil {
-                    let cbId = activeOAuthId
-                    activeOAuthId = 0
-                    authSession?.cancel()
-                    authSession = nil
-                    let outJson = Self.jsonString(["id": cbId, "url": url.absoluteString])
-                    mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(outJson));", completionHandler: nil)
-                }
-                return
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              comps.scheme == "spacesheepshare" else { return }
+        if comps.host == "oauth" || comps.path.contains("callback") || comps.queryItems?.contains(where: { $0.name == "code" || $0.name == "error" }) == true {
+            if activeOAuthId != 0, mainWebView != nil {
+                let cbId = activeOAuthId
+                activeOAuthId = 0
+                authSession?.cancel()
+                authSession = nil
+                let outJson = Self.jsonString(["id": cbId, "url": url.absoluteString])
+                mainWebView.evaluateJavaScript("window.__onOAuthCallback && window.__onOAuthCallback(\(outJson));", completionHandler: nil)
             }
-            let targetUrl = comps.queryItems?.first(where: { $0.name == "url" })?.value ?? ""
-            let title = comps.queryItems?.first(where: { $0.name == "title" })?.value ?? ""
-            let spaceUuid = comps.queryItems?.first(where: { $0.name == "space_uuid" })?.value ?? ""
-            let visibility = comps.queryItems?.first(where: { $0.name == "visibility" })?.value ?? ""
-            if !targetUrl.isEmpty {
-                var dict: [String: Any] = [
-                    "mode": "url",
-                    "url": targetUrl,
-                    "title": title,
-                    "autoPublish": true
-                ]
-                if !spaceUuid.isEmpty { dict["spaceUuid"] = spaceUuid }
-                if !visibility.isEmpty { dict["visibility"] = visibility }
-                if let data = try? JSONSerialization.data(withJSONObject: dict),
-                   let str = String(data: data, encoding: .utf8) {
-                    sharedPayloadJson = str
-                    if mainWebView != nil {
-                        mainWebView.evaluateJavaScript("window.__handleIncomingShare && window.__handleIncomingShare(\(str));", completionHandler: nil)
-                    }
-                }
+            return
+        }
+        let targetUrl = comps.queryItems?.first(where: { $0.name == "url" })?.value ?? ""
+        let title = comps.queryItems?.first(where: { $0.name == "title" })?.value ?? ""
+        let spaceUuid = comps.queryItems?.first(where: { $0.name == "space_uuid" })?.value ?? ""
+        let visibility = comps.queryItems?.first(where: { $0.name == "visibility" })?.value ?? ""
+        if !targetUrl.isEmpty {
+            var dict: [String: Any] = [
+                "mode": "url",
+                "url": targetUrl,
+                "title": title,
+                "autoPublish": true
+            ]
+            if !spaceUuid.isEmpty { dict["spaceUuid"] = spaceUuid }
+            if !visibility.isEmpty { dict["visibility"] = visibility }
+            let str = Self.jsonString(dict)
+            sharedPayloadJson = str
+            if mainWebView != nil {
+                mainWebView.evaluateJavaScript("window.__handleIncomingShare && window.__handleIncomingShare(\(str));", completionHandler: nil)
             }
         }
     }
@@ -194,10 +178,9 @@ import AuthenticationServices
     private func checkProcessArgumentsForIntent() {
         let args = ProcessInfo.processInfo.arguments
         if let idx = args.firstIndex(of: "--share-url"), idx + 1 < args.count {
-            let url = args[idx + 1]
             var dict: [String: Any] = [
                 "mode": "url",
-                "url": url,
+                "url": args[idx + 1],
                 "title": "",
                 "autoPublish": true
             ]
@@ -207,235 +190,15 @@ import AuthenticationServices
             if let vIdx = args.firstIndex(of: "--visibility"), vIdx + 1 < args.count {
                 dict["visibility"] = args[vIdx + 1]
             }
-            if let data = try? JSONSerialization.data(withJSONObject: dict),
-               let str = String(data: data, encoding: .utf8) {
-                sharedPayloadJson = str
-            }
-        }
-    }
-
-    // MARK: - Storage Management
-
-    private func loadStorageDict() -> [String: Any] {
-        if let raw = prefs.string(forKey: Self.storageDictKey) ?? UserDefaults.standard.string(forKey: Self.storageDictKey),
-           let data = raw.data(using: .utf8),
-           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            return dict
-        }
-        return [:]
-    }
-
-    private func saveStorageDict(_ dict: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
-              let raw = String(data: data, encoding: .utf8) else { return }
-        prefs.set(raw, forKey: Self.storageDictKey)
-        UserDefaults.standard.set(raw, forKey: Self.storageDictKey)
-    }
-
-    private func seedDefaultKeyIfNeeded() {
-        var dict = loadStorageDict()
-        if dict["auth"] == nil {
-            let keyUrl = Bundle.main.url(forResource: "default_key", withExtension: "txt", subdirectory: "WebAssets")
-                ?? Bundle.main.url(forResource: "default_key", withExtension: "txt")
-            if let bundledKeyUrl = keyUrl,
-               let key = try? String(contentsOf: bundledKeyUrl, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
-               key.hasPrefix("ss_") {
-                dict["auth"] = ["kind": "key", "key": key]
-                dict["account"] = ["handle": "yaroslavvb"]
-                saveStorageDict(dict)
-            }
+            sharedPayloadJson = Self.jsonString(dict)
         }
     }
 
     private func loadAppIndex() {
         if let indexUrl = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebAssets") {
-            let assetsDir = indexUrl.deletingLastPathComponent()
-            mainWebView.loadFileURL(indexUrl, allowingReadAccessTo: assetsDir)
+            mainWebView.loadFileURL(indexUrl, allowingReadAccessTo: indexUrl.deletingLastPathComponent())
         } else if let indexUrl = Bundle.main.url(forResource: "index", withExtension: "html") {
             mainWebView.loadFileURL(indexUrl, allowingReadAccessTo: indexUrl.deletingLastPathComponent())
-        }
-    }
-
-    // MARK: - Share Extension Input Extraction
-
-    private static func readSecurityScopedData(from url: URL) -> Data? {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer {
-            if accessed { url.stopAccessingSecurityScopedResource() }
-        }
-        return try? Data(contentsOf: url)
-    }
-
-    private func extractShareExtensionItems(from context: NSExtensionContext, completion: @escaping (String) -> Void) {
-        guard let items = context.inputItems as? [NSExtensionItem], !items.isEmpty else {
-            completion("{\"mode\":\"launcher\"}")
-            return
-        }
-
-        var foundUrl: String?
-        var foundTitle: String = ""
-        var fileObjects: [[String: Any]] = []
-        let lock = NSLock()
-        let group = DispatchGroup()
-
-        for item in items {
-            if let attrTitle = item.attributedContentText?.string, !attrTitle.isEmpty {
-                lock.lock()
-                if foundTitle.isEmpty { foundTitle = attrTitle }
-                lock.unlock()
-            }
-            guard let attachments = item.attachments else { continue }
-            for provider in attachments {
-                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier) {
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier, options: nil) { data, _ in
-                        defer { group.leave() }
-                        if let dict = data as? NSDictionary,
-                           let results = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? NSDictionary {
-                            lock.lock()
-                            if let u = results["URL"] as? String ?? results["baseURI"] as? String, !u.isEmpty, foundUrl == nil {
-                                foundUrl = u
-                            }
-                            if let t = results["title"] as? String, !t.isEmpty, foundTitle.isEmpty {
-                                foundTitle = t
-                            }
-                            lock.unlock()
-                        }
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { data, _ in
-                        defer { group.leave() }
-                        if let url = data as? URL {
-                            if url.isFileURL {
-                                if let fileData = Self.readSecurityScopedData(from: url) {
-                                    lock.lock()
-                                    fileObjects.append([
-                                        "name": url.lastPathComponent,
-                                        "type": Self.mimeType(for: url.pathExtension),
-                                        "size": fileData.count,
-                                        "base64": fileData.base64EncodedString()
-                                    ])
-                                    lock.unlock()
-                                }
-                            } else {
-                                lock.lock()
-                                foundUrl = url.absoluteString
-                                lock.unlock()
-                            }
-                        } else if let str = data as? String, let url = Self.extractFirstHttpUrl(from: str) {
-                            lock.lock()
-                            foundUrl = url
-                            lock.unlock()
-                        }
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { data, _ in
-                        defer { group.leave() }
-                        if let str = data as? String {
-                            if let url = Self.extractFirstHttpUrl(from: str) {
-                                lock.lock()
-                                if foundUrl == nil { foundUrl = url }
-                                lock.unlock()
-                            } else if let textData = str.data(using: .utf8) {
-                                lock.lock()
-                                fileObjects.append([
-                                    "name": "shared-note.txt",
-                                    "type": "text/plain",
-                                    "size": textData.count,
-                                    "base64": textData.base64EncodedString()
-                                ])
-                                lock.unlock()
-                            }
-                        }
-                    }
-                } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) || provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) || provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
-                    let typeId = provider.registeredTypeIdentifiers.first ?? UTType.data.identifier
-                    group.enter()
-                    provider.loadItem(forTypeIdentifier: typeId, options: nil) { data, _ in
-                        defer { group.leave() }
-                        if let url = data as? URL, let fileData = Self.readSecurityScopedData(from: url) {
-                            lock.lock()
-                            fileObjects.append([
-                                "name": url.lastPathComponent,
-                                "type": Self.mimeType(for: url.pathExtension),
-                                "size": fileData.count,
-                                "base64": fileData.base64EncodedString()
-                            ])
-                            lock.unlock()
-                        } else if let image = data as? UIImage, let pngData = image.pngData() {
-                            lock.lock()
-                            fileObjects.append([
-                                "name": "shared-image.png",
-                                "type": "image/png",
-                                "size": pngData.count,
-                                "base64": pngData.base64EncodedString()
-                            ])
-                            lock.unlock()
-                        }
-                    }
-                }
-            }
-        }
-
-        group.notify(queue: .main) {
-            if let url = foundUrl {
-                let dict: [String: Any] = [
-                    "mode": "url",
-                    "url": url,
-                    "title": foundTitle,
-                    "autoPublish": true
-                ]
-                if let jsonData = try? JSONSerialization.data(withJSONObject: dict),
-                   let str = String(data: jsonData, encoding: .utf8) {
-                    completion(str)
-                    return
-                }
-            } else if !fileObjects.isEmpty {
-                let dict: [String: Any] = [
-                    "mode": "files",
-                    "title": foundTitle,
-                    "files": fileObjects,
-                    "autoPublish": true
-                ]
-                if let jsonData = try? JSONSerialization.data(withJSONObject: dict),
-                   let str = String(data: jsonData, encoding: .utf8) {
-                    completion(str)
-                    return
-                }
-            }
-            completion("{\"mode\":\"launcher\"}")
-        }
-    }
-
-    private static func extractFirstHttpUrl(from text: String) -> String? {
-        let pattern = "https?://[^\\s\"'<>]+"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-        let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, options: [], range: nsRange),
-              let range = Range(match.range, in: text) else { return nil }
-        return String(text[range])
-    }
-
-    private static func mimeType(for ext: String) -> String {
-        switch ext.lowercased() {
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "gif": return "image/gif"
-        case "webp": return "image/webp"
-        case "svg": return "image/svg+xml"
-        case "pdf": return "application/pdf"
-        case "html", "htm": return "text/html"
-        case "css": return "text/css"
-        case "js", "mjs": return "text/javascript"
-        case "json": return "application/json"
-        case "md": return "text/markdown"
-        case "csv": return "text/csv"
-        case "txt": return "text/plain"
-        case "mp4": return "video/mp4"
-        case "mp3": return "audio/mpeg"
-        default: return "application/octet-stream"
         }
     }
 
@@ -462,17 +225,14 @@ import AuthenticationServices
             completionHandler(current)
 
         case "storageGetAll":
-            let dict = loadStorageDict()
-            completionHandler(Self.jsonString(dict))
+            completionHandler(Self.jsonString(loadStorageDict()))
 
         case "storageSet":
             let patchStr = args.first as? String ?? "{}"
             var dict = loadStorageDict()
             if let pData = patchStr.data(using: .utf8),
                let patch = try? JSONSerialization.jsonObject(with: pData) as? [String: Any] {
-                for (k, v) in patch {
-                    dict[k] = v
-                }
+                for (k, v) in patch { dict[k] = v }
                 saveStorageDict(dict)
             }
             completionHandler("")
@@ -482,9 +242,7 @@ import AuthenticationServices
             var dict = loadStorageDict()
             if let kData = keysStr.data(using: .utf8),
                let keys = try? JSONSerialization.jsonObject(with: kData) as? [String] {
-                for k in keys {
-                    dict.removeValue(forKey: k)
-                }
+                for k in keys { dict.removeValue(forKey: k) }
                 saveStorageDict(dict)
             }
             completionHandler("")
@@ -506,11 +264,6 @@ import AuthenticationServices
             completionHandler("")
             performFetchBinaryAsync(binId: binId, urlStr: urlStr, maxBytes: maxBytes)
 
-        case "fetchBinaryBase64":
-            let urlStr = args.count > 0 ? (args[0] as? String ?? "") : ""
-            let maxBytes = args.count > 1 ? ((args[1] as? NSNumber)?.intValue ?? 26214400) : 26214400
-            performFetchBinary(urlStr: urlStr, maxBytes: maxBytes, completion: completionHandler)
-
         case "renderPageSnapshot":
             let snapId = args.count > 0 ? ((args[0] as? NSNumber)?.intValue ?? 0) : 0
             let urlStr = args.count > 1 ? (args[1] as? String ?? "") : ""
@@ -525,7 +278,7 @@ import AuthenticationServices
             completionHandler("")
             performFetchSnapshotAsset(assetId: assetId, urlStr: urlStr, maxBytes: maxBytes)
 
-        case "resetPageSnapshot", "resetSnapshotWebView":
+        case "resetPageSnapshot":
             completionHandler("")
             performResetSnapshotWebView()
 
@@ -533,8 +286,7 @@ import AuthenticationServices
             let oauthId = nextOAuthId
             nextOAuthId += 1
             activeOAuthId = oauthId
-            let info = Self.jsonString(["id": oauthId, "redirectUri": "spacesheepshare://oauth/callback"])
-            completionHandler(info)
+            completionHandler(Self.jsonString(["id": oauthId, "redirectUri": "spacesheepshare://oauth/callback"]))
 
         case "launchOAuthLoopback":
             let oauthId = args.count > 0 ? ((args[0] as? NSNumber)?.intValue ?? activeOAuthId) : activeOAuthId
@@ -543,13 +295,11 @@ import AuthenticationServices
             performLaunchOAuth(oauthId: oauthId, authorizeUrlStr: authorizeUrlStr)
 
         case "copyToClipboard":
-            let text = args.first as? String ?? ""
-            UIPasteboard.general.string = text
+            UIPasteboard.general.string = args.first as? String ?? ""
             completionHandler("")
 
         case "openExternalUrl":
-            let urlStr = args.first as? String ?? ""
-            if let url = URL(string: urlStr) {
+            if let urlStr = args.first as? String, let url = URL(string: urlStr) {
                 openUrlExternally(url)
             }
             completionHandler("")
@@ -691,492 +441,5 @@ import AuthenticationServices
             }
             responder = r.next
         }
-    }
-
-    // MARK: - Native HTTP & Binary Fetch
-
-    private static let fastSession: URLSession = {
-        let cfg = URLSessionConfiguration.default
-        cfg.httpMaximumConnectionsPerHost = 24
-        cfg.timeoutIntervalForRequest = 15
-        cfg.timeoutIntervalForResource = 30
-        return URLSession(configuration: cfg)
-    }()
-
-    private func performHttpRequestAsync(reqId: Int, urlStr: String, method: String, headersStr: String, bodyStr: String, isBase64: Bool) {
-        guard let url = URL(string: urlStr) else {
-            let errJson = Self.jsonString(["id": reqId, "error": "Invalid URL"])
-            mainWebView.evaluateJavaScript("window.__onHttpResponse && window.__onHttpResponse(\(errJson));", completionHandler: nil)
-            return
-        }
-        var req = URLRequest(url: url, timeoutInterval: 45)
-        req.httpMethod = method
-        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-
-        if let hData = headersStr.data(using: .utf8),
-           let hDict = try? JSONSerialization.jsonObject(with: hData) as? [String: Any] {
-            for (k, v) in hDict {
-                req.setValue("\(v)", forHTTPHeaderField: k)
-            }
-        }
-
-        if !bodyStr.isEmpty && method.uppercased() != "GET" && method.uppercased() != "HEAD" {
-            if isBase64, let decoded = Data(base64Encoded: bodyStr) {
-                req.httpBody = decoded
-            } else {
-                req.httpBody = bodyStr.data(using: .utf8)
-            }
-        }
-
-        Self.fastSession.dataTask(with: req) { [weak self] data, resp, err in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                if let err = err {
-                    let errJson = Self.jsonString(["id": reqId, "error": err.localizedDescription])
-                    self.mainWebView.evaluateJavaScript("window.__onHttpResponse && window.__onHttpResponse(\(errJson));", completionHandler: nil)
-                    return
-                }
-                let http = resp as? HTTPURLResponse
-                let status = http?.statusCode ?? 200
-                var headersOut: [String: String] = [:]
-                if let allHeaders = http?.allHeaderFields {
-                    for (k, v) in allHeaders {
-                        headersOut["\(k)".lowercased()] = "\(v)"
-                    }
-                }
-                var bodyOut = ""
-                if let data = data {
-                    if (headersOut["content-type"] ?? "").contains("text/event-stream") {
-                        let rawText = String(data: data, encoding: .utf8) ?? ""
-                        var lastDataLine = ""
-                        for line in rawText.split(separator: "\n") {
-                            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if trimmed.hasPrefix("data:") {
-                                let payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-                                if !payload.isEmpty {
-                                    lastDataLine = payload
-                                }
-                            }
-                        }
-                        bodyOut = lastDataLine.isEmpty ? rawText : lastDataLine
-                        headersOut["content-type"] = "application/json"
-                    } else {
-                        bodyOut = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? ""
-                    }
-                }
-                let resDict: [String: Any] = [
-                    "id": reqId,
-                    "status": status,
-                    "finalUrl": http?.url?.absoluteString ?? urlStr,
-                    "headers": headersOut,
-                    "body": bodyOut
-                ]
-                let resJson = Self.jsonString(resDict)
-                self.mainWebView.evaluateJavaScript("window.__onHttpResponse && window.__onHttpResponse(\(resJson));", completionHandler: nil)
-            }
-        }.resume()
-    }
-
-    private func performFetchBinaryAsync(binId: Int, urlStr: String, maxBytes: Int) {
-        performFetchBinary(urlStr: urlStr, maxBytes: maxBytes) { [weak self] jsonStr in
-            guard let self = self else { return }
-            if let raw = jsonStr,
-               let data = raw.data(using: .utf8),
-               var dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
-                dict["id"] = binId
-                if let b64 = dict["base64"] as? String {
-                    dict["b64"] = b64
-                    dict.removeValue(forKey: "base64")
-                }
-                let outJson = Self.jsonString(dict)
-                self.mainWebView.evaluateJavaScript("window.__onBinaryResponse && window.__onBinaryResponse(\(outJson));", completionHandler: nil)
-            } else {
-                let errJson = Self.jsonString(["id": binId, "ok": false, "status": 0, "error": "Fetch failed"])
-                self.mainWebView.evaluateJavaScript("window.__onBinaryResponse && window.__onBinaryResponse(\(errJson));", completionHandler: nil)
-            }
-        }
-    }
-
-    private func performFetchBinary(urlStr: String, maxBytes: Int, completion: @escaping (String?) -> Void) {
-        guard let url = URL(string: urlStr) else {
-            completion(Self.jsonString(["ok": false, "status": 0, "error": "Invalid URL"]))
-            return
-        }
-        var req = URLRequest(url: url, timeoutInterval: 20)
-        req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.4 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
-        Self.fastSession.dataTask(with: req) { data, resp, err in
-            guard let data = data, err == nil else {
-                DispatchQueue.main.async {
-                    completion(Self.jsonString(["ok": false, "status": 0, "error": err?.localizedDescription ?? "Fetch failed"]))
-                }
-                return
-            }
-            let http = resp as? HTTPURLResponse
-            let status = http?.statusCode ?? 200
-            if data.count > maxBytes {
-                DispatchQueue.main.async {
-                    completion(Self.jsonString(["ok": false, "status": status, "error": "too_big"]))
-                }
-                return
-            }
-            let ctype = http?.value(forHTTPHeaderField: "Content-Type") ?? "application/octet-stream"
-            let res: [String: Any] = [
-                "ok": (200...299).contains(status),
-                "status": status,
-                "finalUrl": http?.url?.absoluteString ?? urlStr,
-                "contentType": ctype,
-                "size": data.count,
-                "base64": data.base64EncodedString()
-            ]
-            DispatchQueue.main.async {
-                completion(Self.jsonString(res))
-            }
-        }.resume()
-    }
-
-    // MARK: - Offscreen WKWebView DOM Snapshot
-
-    private func performRenderPageSnapshot(snapId: Int, urlStr: String, timeoutMs: Int) {
-        guard let url = URL(string: urlStr) else {
-            let errJson = Self.jsonString(["id": snapId, "ok": false])
-            mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(errJson));", completionHandler: nil)
-            return
-        }
-
-        captureTimeoutWorkItem?.cancel()
-        captureWebView?.stopLoading()
-        captureWebView?.removeFromSuperview()
-
-        self.pendingSnapshotId = snapId
-        let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
-        config.preferences.javaScriptEnabled = true
-        config.defaultWebpagePreferences.preferredContentMode = .mobile
-        let defaultAppName = config.applicationNameForUserAgent ?? "Mobile/15E148"
-        config.applicationNameForUserAgent = "Version/18.4 \(defaultAppName) Safari/604.1"
-        let webglScript = WKUserScript(
-            source: "(function(){try{var o=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){a=Object.assign({},a||{},{preserveDrawingBuffer:true});}return o.call(this,t,a);};}catch(e){}})();",
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
-        config.userContentController.addUserScript(webglScript)
-        let capWebView = WKWebView(frame: CGRect(x: 32, y: 90, width: 320, height: 340), configuration: config)
-        capWebView.alpha = 1.0
-        capWebView.isOpaque = false
-        capWebView.isUserInteractionEnabled = false
-        capWebView.navigationDelegate = self
-        capWebView.uiDelegate = self
-        self.view.insertSubview(capWebView, belowSubview: self.mainWebView)
-        self.captureWebView = capWebView
-
-        let timeoutSec = max(Double(timeoutMs) / 1000.0, 3.0)
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.finishSnapshotFromCaptureWebView()
-        }
-        self.captureTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSec, execute: workItem)
-
-        let req = URLRequest(url: url, timeoutInterval: timeoutSec + 5.0)
-        capWebView.load(req)
-        scheduleCheckOrExtract(delaySec: 0.3)
-    }
-
-    private func performFetchSnapshotAsset(assetId: Int, urlStr: String, maxBytes: Int) {
-        guard let capWebView = self.captureWebView else {
-            let errJson = Self.jsonString(["id": assetId, "ok": false, "error": "no_snapshot_webview"])
-            mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(errJson));", completionHandler: nil)
-            return
-        }
-        let jsBody = """
-        try {
-          var r;
-          try { r = await fetch(u, { credentials: 'same-origin', cache: 'force-cache' }); } catch(e) {}
-          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'same-origin' }); } catch(e) {} }
-          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }
-          if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });
-          if (!r.ok) return JSON.stringify({ ok: false, error: 'HTTP ' + r.status });
-          var cl = Number(r.headers.get('content-length') || 0);
-          if (cl > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
-          var blob = await r.blob();
-          if (blob.size > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
-          var b64 = await new Promise(function(resolve, reject) {
-            var reader = new FileReader();
-            reader.onloadend = function() {
-              var res = String(reader.result || '');
-              var idx = res.indexOf(',');
-              resolve(idx >= 0 ? res.slice(idx + 1) : '');
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          return JSON.stringify({
-            ok: true,
-            base64: b64,
-            contentType: blob.type || r.headers.get('content-type') || '',
-            finalUrl: r.url || u
-          });
-        } catch (err) {
-          return JSON.stringify({ ok: false, error: String(err && err.message || err) });
-        }
-        """
-        capWebView.callAsyncJavaScript(jsBody, arguments: ["u": urlStr, "maxBytes": maxBytes], in: nil, in: .page) { [weak self] result in
-            guard let self = self else { return }
-            if case .success(let val) = result,
-               let jsonStr = val as? String,
-               let data = jsonStr.data(using: .utf8),
-               var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                parsed["id"] = assetId
-                let outJson = Self.jsonString(parsed)
-                self.mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(outJson));", completionHandler: nil)
-            } else {
-                let errJson = Self.jsonString(["id": assetId, "ok": false, "error": "eval_failed"])
-                self.mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(errJson));", completionHandler: nil)
-            }
-        }
-    }
-
-    private func performResetSnapshotWebView() {
-        captureTimeoutWorkItem?.cancel()
-        captureTimeoutWorkItem = nil
-        pendingSnapshotId = 0
-        captureWebView?.stopLoading()
-        captureWebView?.removeFromSuperview()
-        captureWebView = nil
-    }
-
-    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if webView == self.captureWebView {
-            let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
-            if scheme != "http" && scheme != "https" && scheme != "about" && scheme != "data" && scheme != "blob" {
-                decisionHandler(.cancel)
-                return
-            }
-        }
-        decisionHandler(.allow)
-    }
-
-    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        guard webView == self.captureWebView else { return }
-        scheduleCheckOrExtract(delaySec: 0.15)
-    }
-
-    private func scheduleCheckOrExtract(delaySec: Double) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
-            guard let self = self, let capWebView = self.captureWebView, self.pendingSnapshotId != 0 else { return }
-            let checkJs = "(function(){ var href = String(location.href || ''); var t = document.title || ''; var c = !!(t === 'Just a moment...' || t === 'Attention Required! | Cloudflare' || document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*=\"challenges.cloudflare.com\"], script[src*=\"challenges.cloudflare.com\"]')); var bLen = document.body ? document.body.innerHTML.trim().length : 0; var katexWait = !!(document.querySelector('script[src*=\"katex\"]') && !document.querySelector('.katex') && document.readyState !== 'complete'); var dm = document.querySelector('d-math, d-cite'); var distillWait = !!(dm && !dm.shadowRoot); var ready = !c && href !== '' && href !== 'about:blank' && document.readyState !== 'loading' && bLen >= 200 && !katexWait && !distillWait; return JSON.stringify({challenge: c, ready: ready, title: t, url: href, bodyLen: bLen}); })()"
-            capWebView.evaluateJavaScript(checkJs) { [weak self] val, _ in
-                guard let self = self, self.pendingSnapshotId != 0 else { return }
-                if let str = val as? String,
-                   let data = str.data(using: .utf8),
-                   let info = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    if (info["challenge"] as? Bool) == true {
-                        self.scheduleCheckOrExtract(delaySec: 0.6)
-                        return
-                    }
-                    if (info["ready"] as? Bool) != true {
-                        self.scheduleCheckOrExtract(delaySec: 0.16)
-                        return
-                    }
-                }
-                self.finishSnapshotFromCaptureWebView()
-            }
-        }
-    }
-
-    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        guard webView == self.captureWebView else { return }
-        failCurrentSnapshot()
-    }
-
-    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        guard webView == self.captureWebView else { return }
-        failCurrentSnapshot()
-    }
-
-    private func failCurrentSnapshot() {
-        captureTimeoutWorkItem?.cancel()
-        captureTimeoutWorkItem = nil
-        captureWebView?.removeFromSuperview()
-        captureWebView = nil
-        let snapId = pendingSnapshotId
-        guard snapId != 0 else { return }
-        pendingSnapshotId = 0
-        let errJson = Self.jsonString(["id": snapId, "ok": false])
-        mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(errJson));", completionHandler: nil)
-    }
-
-    private func finishSnapshotFromCaptureWebView() {
-        captureTimeoutWorkItem?.cancel()
-        captureTimeoutWorkItem = nil
-        guard let capWebView = self.captureWebView, pendingSnapshotId != 0 else { return }
-        let snapId = pendingSnapshotId
-        pendingSnapshotId = 0
-
-        WKWebsiteDataStore.default().httpCookieStore.getAllCookies { cookies in
-            for cookie in cookies {
-                HTTPCookieStorage.shared.setCookie(cookie)
-            }
-        }
-
-        let snapJs = """
-        (function() {
-          try {
-            var title = document.title || '';
-            var isChallenge = (title === 'Just a moment...' || title === 'Attention Required! | Cloudflare') || !!document.querySelector('#challenge-running, #challenge-stage, #cf-challenge-running, iframe[src*="challenges.cloudflare.com"]');
-            if (isChallenge) {
-              return JSON.stringify({ ok: false, challenge: true, title: title });
-            }
-            var d = document.doctype;
-            var dt = d ? '<!DOCTYPE ' + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : '') + (d.systemId ? ' "' + d.systemId + '"' : '') + '>' : '<!DOCTYPE html>';
-            var root = document.documentElement.cloneNode(true);
-            var origAll = document.querySelectorAll('*');
-            var cloneAll = root.querySelectorAll('*');
-            for (var shIdx = 0; shIdx < origAll.length && shIdx < cloneAll.length; shIdx++) {
-              try {
-                var oEl = origAll[shIdx], cEl = cloneAll[shIdx];
-                if (oEl.tagName === cEl.tagName && oEl.shadowRoot && !cEl.querySelector('template[shadowrootmode]')) {
-                  var tpl = document.createElement('template');
-                  tpl.setAttribute('shadowrootmode', 'open');
-                  var shCss = '';
-                  if (oEl.shadowRoot.adoptedStyleSheets && oEl.shadowRoot.adoptedStyleSheets.length > 0) {
-                    for (var sa = 0; sa < oEl.shadowRoot.adoptedStyleSheets.length; sa++) {
-                      try {
-                        var shSheet = oEl.shadowRoot.adoptedStyleSheets[sa];
-                        if (shSheet && shSheet.cssRules) {
-                          var sRules = [];
-                          for (var sr = 0; sr < shSheet.cssRules.length; sr++) sRules.push(shSheet.cssRules[sr].cssText);
-                          if (sRules.length) shCss += '<style>' + sRules.join('\\n') + '</style>';
-                        }
-                      } catch(e) {}
-                    }
-                  }
-                  tpl.innerHTML = shCss + oEl.shadowRoot.innerHTML;
-                  cEl.insertBefore(tpl, cEl.firstChild);
-                }
-              } catch(e) {}
-            }
-            var origCanvases = document.querySelectorAll('canvas');
-            var cloneCanvases = root.querySelectorAll('canvas');
-            for (var i = 0; i < origCanvases.length && i < cloneCanvases.length; i++) {
-              try {
-                var c = origCanvases[i];
-                if (c.width > 0 && c.height > 0) {
-                  var dataUrl = c.toDataURL('image/png');
-                  if (dataUrl && dataUrl.length > 64) {
-                    var img = document.createElement('img');
-                    img.setAttribute('src', dataUrl);
-                    if (c.getAttribute('id')) img.setAttribute('id', c.getAttribute('id'));
-                    if (c.getAttribute('class')) img.setAttribute('class', c.getAttribute('class'));
-                    if (c.getAttribute('style')) img.setAttribute('style', c.getAttribute('style'));
-                    var cw = c.clientWidth || c.width, ch = c.clientHeight || c.height;
-                    if (cw > 0 && ch > 0) { img.setAttribute('width', String(cw)); img.setAttribute('height', String(ch)); }
-                    cloneCanvases[i].replaceWith(img);
-                  }
-                }
-              } catch(e) {}
-            }
-            var origStyles = document.querySelectorAll('style');
-            var cloneStyles = root.querySelectorAll('style');
-            for (var sIdx = 0; sIdx < origStyles.length && sIdx < cloneStyles.length; sIdx++) {
-              try {
-                var origS = origStyles[sIdx], cloneS = cloneStyles[sIdx];
-                var rawCss = (origS.textContent || '').replace(/<!--[\\s\\S]*?-->/g, '');
-                var sheetCss = '';
-                if (origS.sheet && origS.sheet.cssRules) {
-                  var rules = [];
-                  for (var rIdx = 0; rIdx < origS.sheet.cssRules.length; rIdx++) {
-                    rules.push(origS.sheet.cssRules[rIdx].cssText);
-                  }
-                  sheetCss = rules.join('\\n');
-                }
-                cloneS.textContent = (rawCss.trim().length === 0 && sheetCss.length > 0) ? sheetCss : (sheetCss.length > rawCss.length ? sheetCss : rawCss);
-              } catch(e) {}
-            }
-            if (document.adoptedStyleSheets && document.adoptedStyleSheets.length > 0) {
-              var headEl = root.querySelector('head') || root;
-              for (var aIdx = 0; aIdx < document.adoptedStyleSheets.length; aIdx++) {
-                try {
-                  var aSheet = document.adoptedStyleSheets[aIdx];
-                  if (aSheet && aSheet.cssRules && aSheet.cssRules.length > 0) {
-                    var aRules = [];
-                    for (var ar = 0; ar < aSheet.cssRules.length; ar++) aRules.push(aSheet.cssRules[ar].cssText);
-                    var aStyle = document.createElement('style');
-                    aStyle.setAttribute('data-adopted-ss', String(aIdx));
-                    aStyle.textContent = aRules.join('\\n');
-                    headEl.appendChild(aStyle);
-                  }
-                } catch(e) {}
-              }
-            }
-            var origImgs = document.querySelectorAll('img');
-            var cloneImgs = root.querySelectorAll('img');
-            for (var mIdx = 0; mIdx < origImgs.length && mIdx < cloneImgs.length; mIdx++) {
-              try {
-                var oImg = origImgs[mIdx], cImg = cloneImgs[mIdx];
-                cImg.removeAttribute('loading');
-                cImg.removeAttribute('decoding');
-                var curSrc = cImg.getAttribute('src') || '';
-                var lazySrc = cImg.getAttribute('data-src') || cImg.getAttribute('data-lazy-src') || cImg.getAttribute('data-original') || '';
-                if (lazySrc && (!curSrc || curSrc.indexOf('data:') === 0 || curSrc === 'about:blank')) {
-                  cImg.setAttribute('src', lazySrc);
-                } else if ((!curSrc || curSrc.indexOf('data:') === 0) && oImg.currentSrc && /^https?:/i.test(oImg.currentSrc)) {
-                  cImg.setAttribute('src', oImg.currentSrc);
-                }
-                var lazySrcset = cImg.getAttribute('data-srcset') || cImg.getAttribute('data-lazy-srcset') || '';
-                if (lazySrcset && !cImg.getAttribute('srcset')) {
-                  cImg.setAttribute('srcset', lazySrcset);
-                }
-              } catch(e) {}
-            }
-            var overlays = root.querySelectorAll('.osano-cm-window, #onetrust-consent-sdk, #onetrust-banner-sdk, #CybotCookiebotDialog, #CybotCookiebotDialogBodyUnderlay, .qc-cmp2-container, .fc-consent-root, #truste-consent-track, #didomi-host, #usercentrics-root, .cky-consent-container, .cc-window, .cc-revoke, #cookie-law-info-bar, #cookie-notice, #iubenda-cs-banner, [id^=\"sp_message_container\"], .cmplz-cookiebanner-container, #BorlabsCookieBox, #gdpr-cookie-message, .mw-notification-area, .postedit-container, [role=\"dialog\"][aria-label*=\"Subscribe\" i], [class*=\"subscribeDialog\"], noscript');
-            for (var oIdx = 0; oIdx < overlays.length; oIdx++) overlays[oIdx].remove();
-            var cloneBody = root.querySelector('body');
-            for (var rEl of [root, cloneBody]) {
-              if (!rEl) continue;
-              var st = rEl.getAttribute('style');
-              if (st && /overflow\\s*:\\s*hidden/i.test(st)) {
-                var cleaned = st.replace(/overflow(-[xy])?\\s*:\\s*hidden\\s*(!important)?\\s*;?/gi, '').replace(/position\\s*:\\s*fixed\\s*(!important)?\\s*;?/gi, '').trim();
-                if (cleaned) rEl.setAttribute('style', cleaned);
-                else rEl.removeAttribute('style');
-              }
-            }
-            return JSON.stringify({
-              ok: true,
-              title: title,
-              finalUrl: location.href,
-              html: dt + "\\n" + root.outerHTML
-            });
-          } catch(err) {
-            return JSON.stringify({ ok: false, error: String(err) });
-          }
-        })();
-        """
-        capWebView.evaluateJavaScript(snapJs) { [weak self] result, _ in
-            guard let self = self else { return }
-            if let jsonStr = result as? String,
-               let data = jsonStr.data(using: .utf8),
-               var parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                if (parsed["ok"] as? Bool) != true {
-                    capWebView.removeFromSuperview()
-                    self.captureWebView = nil
-                }
-                parsed["id"] = snapId
-                let outJson = Self.jsonString(parsed)
-                self.mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(outJson));", completionHandler: nil)
-            } else {
-                capWebView.removeFromSuperview()
-                self.captureWebView = nil
-                let errJson = Self.jsonString(["id": snapId, "ok": false])
-                self.mainWebView.evaluateJavaScript("window.__onSnapshotResponse && window.__onSnapshotResponse(\(errJson));", completionHandler: nil)
-            }
-        }
-    }
-
-    private static func jsonString(_ dict: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: dict),
-              let str = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return str
     }
 }

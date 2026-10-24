@@ -16,6 +16,14 @@
 		A10000070000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000001 /* PrivacyInfo.xcprivacy */; };
 		A10000080000000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000001 /* Assets.xcassets */; };
 		A10000090000000000000001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000001 /* PrivacyInfo.xcprivacy */; };
+		A10000100000000000000001 /* SpacesheepStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000100000000000000001 /* SpacesheepStorage.swift */; };
+		A10000110000000000000001 /* SpacesheepHttp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000110000000000000001 /* SpacesheepHttp.swift */; };
+		A10000120000000000000001 /* SpacesheepDomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000120000000000000001 /* SpacesheepDomSnapshot.swift */; };
+		A10000130000000000000001 /* SpacesheepShareExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000130000000000000001 /* SpacesheepShareExtractor.swift */; };
+		A10000140000000000000001 /* SpacesheepStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000100000000000000001 /* SpacesheepStorage.swift */; };
+		A10000150000000000000001 /* SpacesheepHttp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000110000000000000001 /* SpacesheepHttp.swift */; };
+		A10000160000000000000001 /* SpacesheepDomSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000120000000000000001 /* SpacesheepDomSnapshot.swift */; };
+		A10000170000000000000001 /* SpacesheepShareExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000130000000000000001 /* SpacesheepShareExtractor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +53,10 @@
 /* Begin PBXFileReference section */
 		A20000010000000000000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AppDelegate.swift; sourceTree = "<group>"; };
 		A20000020000000000000001 /* SpacesheepBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/SpacesheepBridgeViewController.swift; sourceTree = "<group>"; };
+		A20000100000000000000001 /* SpacesheepStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/SpacesheepStorage.swift; sourceTree = "<group>"; };
+		A20000110000000000000001 /* SpacesheepHttp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/SpacesheepHttp.swift; sourceTree = "<group>"; };
+		A20000120000000000000001 /* SpacesheepDomSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/SpacesheepDomSnapshot.swift; sourceTree = "<group>"; };
+		A20000130000000000000001 /* SpacesheepShareExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared/SpacesheepShareExtractor.swift; sourceTree = "<group>"; };
 		A20000030000000000000001 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtension/ShareViewController.swift; sourceTree = "<group>"; };
 		A20000040000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = App/Info.plist; sourceTree = "<group>"; };
 		A20000050000000000000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ShareExtension/Info.plist; sourceTree = "<group>"; };
@@ -81,6 +93,10 @@
 				A20000040000000000000001 /* Info.plist */,
 				A20000080000000000000001 /* SheepIt.entitlements */,
 				A20000020000000000000001 /* SpacesheepBridgeViewController.swift */,
+				A20000100000000000000001 /* SpacesheepStorage.swift */,
+				A20000110000000000000001 /* SpacesheepHttp.swift */,
+				A20000120000000000000001 /* SpacesheepDomSnapshot.swift */,
+				A20000130000000000000001 /* SpacesheepShareExtractor.swift */,
 				A20000060000000000000001 /* Assets.xcassets */,
 				A20000070000000000000001 /* PrivacyInfo.xcprivacy */,
 				A20000030000000000000001 /* ShareViewController.swift */,
@@ -228,6 +244,10 @@
 			files = (
 				A10000010000000000000001 /* AppDelegate.swift in Sources */,
 				A10000020000000000000001 /* SpacesheepBridgeViewController.swift in Sources */,
+				A10000100000000000000001 /* SpacesheepStorage.swift in Sources */,
+				A10000110000000000000001 /* SpacesheepHttp.swift in Sources */,
+				A10000120000000000000001 /* SpacesheepDomSnapshot.swift in Sources */,
+				A10000130000000000000001 /* SpacesheepShareExtractor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -237,6 +257,10 @@
 			files = (
 				A10000030000000000000001 /* ShareViewController.swift in Sources */,
 				A10000040000000000000001 /* SpacesheepBridgeViewController.swift in Sources */,
+				A10000140000000000000001 /* SpacesheepStorage.swift in Sources */,
+				A10000150000000000000001 /* SpacesheepHttp.swift in Sources */,
+				A10000160000000000000001 /* SpacesheepDomSnapshot.swift in Sources */,
+				A10000170000000000000001 /* SpacesheepShareExtractor.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

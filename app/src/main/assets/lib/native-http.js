@@ -1,4 +1,4 @@
-// Native HTTP, offscreen DOM snapshot, and OAuth loopback bridge for Android WebView,
+// Native HTTP, offscreen DOM snapshot, and OAuth loopback bridge for Android & iOS WebViews,
 // with standard fetch fallback so the same modules also run in Node.js on the computer.
 
 let nextReqId = 1;
@@ -9,6 +9,13 @@ const pendingSnapshotAsset = new Map();
 const pendingOAuth = new Map();
 let pendingPickedFiles = null;
 let snapshotWebViewActive = false;
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 if (typeof window !== "undefined") {
   window.__onHttpResponse = (res) => {
@@ -61,17 +68,11 @@ export const hasAndroidBridge = () => typeof window !== "undefined" && !!window.
 
 /**
  * Perform an HTTP request bypassing WebView CORS restrictions.
- * Returns { status, ok, headers: Map, text(), json() }.
+ * Returns { status, ok, headers: { get }, text(), json() }.
  */
 export async function nativeFetch(url, { method = "GET", headers = {}, body = null, isBase64Body = false } = {}) {
   if (!hasAndroidBridge()) {
-    let reqBody = body;
-    if (isBase64Body && typeof body === "string") {
-      const bin = atob(body);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      reqBody = bytes;
-    }
+    const reqBody = isBase64Body && typeof body === "string" ? b64ToBytes(body) : body;
     const resp = await fetch(url, { method, headers, body: reqBody });
     const text = await resp.text();
     const hdrMap = new Map();
@@ -122,10 +123,6 @@ export async function nativeFetch(url, { method = "GET", headers = {}, body = nu
   });
 }
 
-/**
- * Fetch binary asset bytes (HTML, CSS, image, font, PDF, etc.) bypassing CORS.
- * Returns { url, finalUrl, bytes: Uint8Array, type: string } or { url, error: string }.
- */
 function shouldFallbackToSnapshotWebView(errorStr, statusNum, url) {
   if (!snapshotWebViewActive) return false;
   if (errorStr === "too_big") return false;
@@ -134,6 +131,10 @@ function shouldFallbackToSnapshotWebView(errorStr, statusNum, url) {
   return true;
 }
 
+/**
+ * Fetch binary asset bytes (HTML, CSS, image, font, PDF, etc.) bypassing CORS.
+ * Returns { url, finalUrl, bytes: Uint8Array, type: string } or { url, error: string }.
+ */
 export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
   if (!hasAndroidBridge()) {
     try {
@@ -147,105 +148,36 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
     }
   }
 
-  if (window.AndroidBridge && window.AndroidBridge.fetchBinaryAsync) {
-    try {
-      const id = nextReqId++;
-      const res = await new Promise((resolve) => {
-        pendingBinary.set(id, { resolve });
-        window.AndroidBridge.fetchBinaryAsync(id, url, Number(maxBytes));
-      });
-      if (!res || !res.ok) {
-        const errStr = (res && res.error) || `HTTP ${(res && res.status) || 0}`;
-        const statusNum = Number((res && res.status) || 0);
-        if (shouldFallbackToSnapshotWebView(errStr, statusNum, url)) {
-          const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-          if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
-        }
-        return { url, error: errStr };
-      }
-      let bytes;
-      if (typeof res.b64 === "string") {
-        const bin = atob(res.b64);
-        bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      } else if (res.blobId !== undefined) {
-        const blobResp = await fetch(`https://appassets.spacesheep.invalid/__blob?id=${res.blobId}`);
-        bytes = new Uint8Array(await blobResp.arrayBuffer());
-      } else {
-        bytes = new Uint8Array(0);
-      }
-      if (bytes.length > maxBytes) return { url, error: "too_big" };
-      return {
-        url,
-        finalUrl: res.finalUrl || url,
-        bytes,
-        type: res.contentType || "",
-      };
-    } catch (e) {
-      if (shouldFallbackToSnapshotWebView(null, 0, url)) {
-        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
-      }
-      return { url, error: String(e.message || e) };
-    }
-  }
-
-  if (window.AndroidBridge && window.AndroidBridge.fetchBinaryBase64) {
-    try {
-      const raw = window.AndroidBridge.fetchBinaryBase64(url, Number(maxBytes));
-      const res = JSON.parse(raw || "{}");
-      if (!res.ok) {
-        if (shouldFallbackToSnapshotWebView(res.error, Number(res.status || 0), url)) {
-          const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-          if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
-        }
-        return { url, error: res.error || `HTTP ${res.status || 0}` };
-      }
-      const bin = atob(res.base64 || "");
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      if (bytes.length > maxBytes) return { url, error: "too_big" };
-      return {
-        url,
-        finalUrl: res.finalUrl || url,
-        bytes,
-        type: res.contentType || "",
-      };
-    } catch (e) {
-      if (shouldFallbackToSnapshotWebView(null, 0, url)) {
-        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
-      }
-      return { url, error: String(e.message || e) };
-    }
-  }
-
   try {
-    const proxyUrl = `https://appassets.spacesheep.invalid/__fetch?url=${encodeURIComponent(url)}&maxBytes=${Number(maxBytes)}`;
-    const r = await fetch(proxyUrl);
-    const err = r.headers.get("x-fetch-error");
-    const status = Number(r.headers.get("x-http-status") || r.status);
-    if (err) {
-      if (shouldFallbackToSnapshotWebView(err, status, url)) {
+    const id = nextReqId++;
+    const res = await new Promise((resolve) => {
+      pendingBinary.set(id, { resolve });
+      window.AndroidBridge.fetchBinaryAsync(id, url, Number(maxBytes));
+    });
+    if (!res || !res.ok) {
+      const errStr = (res && res.error) || `HTTP ${(res && res.status) || 0}`;
+      const statusNum = Number((res && res.status) || 0);
+      if (shouldFallbackToSnapshotWebView(errStr, statusNum, url)) {
         const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
         if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
       }
-      return { url, error: err };
+      return { url, error: errStr };
     }
-    if (status < 200 || status >= 300) {
-      if (shouldFallbackToSnapshotWebView(null, status, url)) {
-        const viaWv = await fetchViaSnapshotWebView(url, maxBytes);
-        if (viaWv && (viaWv.bytes || viaWv.error === "too_big")) return viaWv;
-      }
-      return { url, error: `HTTP ${status}` };
+    let bytes;
+    if (typeof res.b64 === "string") {
+      bytes = b64ToBytes(res.b64);
+    } else if (res.blobId !== undefined) {
+      const blobResp = await fetch(`https://appassets.spacesheep.invalid/__blob?id=${res.blobId}`);
+      bytes = new Uint8Array(await blobResp.arrayBuffer());
+    } else {
+      bytes = new Uint8Array(0);
     }
-    const bytes = new Uint8Array(await r.arrayBuffer());
     if (bytes.length > maxBytes) return { url, error: "too_big" };
     return {
       url,
-      finalUrl: r.headers.get("x-final-url") || url,
+      finalUrl: res.finalUrl || url,
       bytes,
-      type: r.headers.get("x-orig-type") || r.headers.get("content-type") || "",
+      type: res.contentType || "",
     };
   } catch (e) {
     if (shouldFallbackToSnapshotWebView(null, 0, url)) {
@@ -257,9 +189,7 @@ export async function fetchBinaryUrl(url, maxBytes = 25 * 1024 * 1024) {
 }
 
 async function fetchViaSnapshotWebView(url, maxBytes = 25 * 1024 * 1024) {
-  if (!hasAndroidBridge() || !window.AndroidBridge.fetchSnapshotAsset) {
-    return null;
-  }
+  if (!hasAndroidBridge() || !window.AndroidBridge.fetchSnapshotAsset) return null;
   const id = nextReqId++;
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
@@ -274,13 +204,10 @@ async function fetchViaSnapshotWebView(url, maxBytes = 25 * 1024 * 1024) {
           return;
         }
         try {
-          const bin = atob(res.base64);
-          const bytes = new Uint8Array(bin.length);
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
           resolve({
             url,
             finalUrl: res.finalUrl || url,
-            bytes,
+            bytes: b64ToBytes(res.base64),
             type: res.contentType || "",
           });
         } catch {
@@ -293,7 +220,7 @@ async function fetchViaSnapshotWebView(url, maxBytes = 25 * 1024 * 1024) {
 }
 
 /**
- * Render a webpage in an offscreen Android WebView and return its post-JS DOM snapshot.
+ * Render a webpage in an offscreen WebView and return its post-JS DOM snapshot.
  * Returns { ok, html, title, finalUrl }.
  */
 export async function renderPageDom(url, timeoutMs = 5500) {
@@ -320,19 +247,13 @@ export async function renderPageDom(url, timeoutMs = 5500) {
 export function resetSnapshotWebView() {
   snapshotWebViewActive = false;
   if (hasAndroidBridge() && window.AndroidBridge.resetPageSnapshot) {
-    try {
-      window.AndroidBridge.resetPageSnapshot();
-    } catch {}
+    try { window.AndroidBridge.resetPageSnapshot(); } catch {}
   }
 }
 
-/**
- * Allocate a loopback port on 127.0.0.1 for native OAuth 2.1 PKCE callback.
- */
 export function prepareLoopbackOAuth() {
   if (!hasAndroidBridge() || !window.AndroidBridge.prepareOAuthLoopback) return null;
-  const info = JSON.parse(window.AndroidBridge.prepareOAuthLoopback());
-  return info; // { id, redirectUri }
+  return JSON.parse(window.AndroidBridge.prepareOAuthLoopback());
 }
 
 export function waitForLoopbackOAuth(id, authorizeUrl) {

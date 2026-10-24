@@ -416,9 +416,6 @@ public class MainActivity extends Activity {
         if (path == null || path.isEmpty() || "/".equals(path)) {
             path = "/index.html";
         }
-        if ("/__fetch".equals(path)) {
-            return httpClient.handleProxyFetch(uri);
-        }
         if ("/__blob".equals(path)) {
             return httpClient.handleBlobFetch(uri);
         }

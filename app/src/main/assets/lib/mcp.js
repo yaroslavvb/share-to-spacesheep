@@ -1,10 +1,8 @@
 // Streamable-HTTP MCP client for mcp.spacesheep.dev using nativeFetch to avoid CORS.
-import { extension, browserName } from "./browser.js";
 import { bearer, serverOrigin, AuthError } from "./auth.js";
 import { nativeFetch } from "./native-http.js";
 
 const PROTOCOL = "2025-06-18";
-const VERSION = extension.runtime.getManifest().version;
 
 export class McpError extends Error {
   constructor(code, message) {
@@ -17,7 +15,6 @@ export class Mcp {
   constructor() {
     this.session = null;
     this.nextId = 1;
-    this.ready = null;
   }
 
   async _post(body, { retried = false } = {}) {
@@ -63,26 +60,6 @@ export class Mcp {
       return last;
     }
     return text ? JSON.parse(text) : null;
-  }
-
-  _init() {
-    this.ready ||= (async () => {
-      await this._post({
-        jsonrpc: "2.0",
-        id: this.nextId++,
-        method: "initialize",
-        params: {
-          protocolVersion: PROTOCOL,
-          capabilities: {},
-          clientInfo: { name: `spacesheep-${browserName.toLowerCase()}`, version: VERSION },
-        },
-      });
-      await this._post({ jsonrpc: "2.0", method: "notifications/initialized" });
-    })().catch((e) => {
-      this.ready = null;
-      throw e;
-    });
-    return this.ready;
   }
 
   async call(name, args = {}) {

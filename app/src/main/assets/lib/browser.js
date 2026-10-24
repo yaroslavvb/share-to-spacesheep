@@ -1,4 +1,4 @@
-// Browser/extension compatibility layer for Share to spacesheep (Android & computer).
+// Browser/extension compatibility layer for SheepIt (Android, iOS & Node CLI).
 import { hasAndroidBridge } from "./native-http.js";
 
 const memStorage = new Map();
@@ -20,9 +20,6 @@ export const extension = {
     getURL(path = "") {
       const clean = String(path).replace(/^\/+/, "");
       return `https://appassets.spacesheep.invalid/${clean}`;
-    },
-    getManifest() {
-      return { version: "0.6.1" };
     },
   },
   storage: {
@@ -63,11 +60,3 @@ export const extension = {
     },
   },
 };
-
-export const isFirefox = false;
-export const browserName = "Android";
-export const isAndroidBuild = true;
-
-export function resultTabOptions(url) {
-  return { url };
-}
