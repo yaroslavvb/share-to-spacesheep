@@ -8,7 +8,7 @@ import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 import { kindOf, extOf, fileSlot, titleFromName } from "../app/src/main/assets/lib/kinds.js";
 import { imagePage, videoPage, audioPage, textPage, filePage } from "../app/src/main/assets/lib/viewers.js";
-import { rewriteCss } from "../app/src/main/assets/lib/capture-refs.js";
+import { neutralizeCapturedHtml, rewriteCss } from "../app/src/main/assets/lib/capture-refs.js";
 
 const DEFAULT_ORIGIN = "https://mcp.spacesheep.dev";
 const PROTOCOL = "2025-06-18";
@@ -233,6 +233,7 @@ async function captureUrlOnComputer(targetUrl, maxAssets = 40) {
     return full;
   });
 
+  html = neutralizeCapturedHtml(html);
   const htmlBuf = Buffer.from(html, "utf-8");
   files.unshift({ path: "index.html", content: html, bytes: htmlBuf });
   return { title: title || new URL(finalUrl).hostname, kind: "page", files };
@@ -290,6 +291,7 @@ function captureLocalHtmlOnComputer(filePath, customTitle = "", maxAssets = 1000
     return next !== raw ? `${prefix}${next}${suffix}` : full;
   });
 
+  html = neutralizeCapturedHtml(html);
   const htmlBuf = Buffer.from(html, "utf-8");
   files.unshift({ path: "index.html", content: html, bytes: htmlBuf });
   return { title, kind: "page", files };

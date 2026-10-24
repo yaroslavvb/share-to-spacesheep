@@ -8,6 +8,7 @@ import { kindOf, titleFromName } from "./kinds.js";
 import { fileName } from "./refs.js";
 import { buildSingle, buildMany } from "./build.js";
 import { captureWeb } from "./capture.js";
+import { neutralizeCapturedHtml } from "./capture-refs.js";
 import { fetchBinaryUrl, nativeFetch, renderPageDom, resetSnapshotWebView } from "./native-http.js";
 
 export const LIMITS = {
@@ -462,7 +463,9 @@ async function inlineFile(f) {
   const bytes = new Uint8Array(await f.blob.arrayBuffer());
   if (f.html || /\.(?:html?|css|svg|txt|md|json|xml)$/i.test(f.path)) {
     try {
-      return { path: f.path, content: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
+      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      const content = f.html || /\.html?$/i.test(f.path) ? neutralizeCapturedHtml(decoded) : decoded;
+      return { path: f.path, content };
     } catch {}
   }
   return { path: f.path, content: toB64(bytes), encoding: "base64" };
@@ -477,7 +480,13 @@ async function stageFiles(begin, files, onProgress) {
     while (next < files.length) {
       const i = next++;
       const f = files[i];
-      const bytes = new Uint8Array(await f.blob.arrayBuffer());
+      let bytes = new Uint8Array(await f.blob.arrayBuffer());
+      if (f.html || /\.html?$/i.test(f.path)) {
+        try {
+          const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+          bytes = new TextEncoder().encode(neutralizeCapturedHtml(decoded));
+        } catch {}
+      }
       const r = await nativeFetch(`${begin.upload_url}?path=${encodeURIComponent(f.path)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/octet-stream" },

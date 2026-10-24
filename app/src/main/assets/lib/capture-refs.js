@@ -176,12 +176,10 @@ export function stripScripts(doc) {
       }
       continue;
     }
-    if (!type || type === "module" || /(java|ecma)script/.test(type)) {
-      if (/(?:katex|mathjax)/i.test(src) || /(?:renderMathInElement|katexOptions|MathJax)/i.test(text)) {
-        hasMathEngine = true;
-      }
-      el.remove();
+    if (/(?:katex|mathjax)/i.test(src) || /(?:renderMathInElement|katexOptions|MathJax)/i.test(text)) {
+      hasMathEngine = true;
     }
+    el.remove();
   }
   if (hasPreRenderedMath) {
     for (const el of doc.querySelectorAll(".MJX_Assistive_MathML, mjx-assistive-mml, .MathJax_Preview")) {
@@ -428,11 +426,34 @@ export function prepareDocument(doc, base, ownerDoc = doc) {
       try { el.setAttribute("src", new URL(raw, base).href); } catch {}
     }
   }
-  for (const el of doc.querySelectorAll("a[href], area[href], form[action], [formaction]")) {
-    const attr = el.hasAttribute("href") ? "href" : el.hasAttribute("action") ? "action" : "formaction";
-    const raw = el.getAttribute(attr);
+  for (const el of doc.querySelectorAll("a[href], area[href]")) {
+    const raw = el.getAttribute("href");
     if (raw && !raw.startsWith("#")) {
-      try { el.setAttribute(attr, new URL(raw, base).href); } catch {}
+      try { el.setAttribute("href", new URL(raw, base).href); } catch {}
+    }
+  }
+  // A captured page is a static reading snapshot, never a live login or checkout form.
+  // Stripping form action/formaction and neutralizing password/card inputs prevents
+  // embedded site headers (Sign In modals, PayPal donate forms, newsletter boxes)
+  // from triggering deploy-time phishing content screening (credential-field + external-form-action).
+  for (const el of doc.querySelectorAll("form[action]")) el.removeAttribute("action");
+  for (const el of doc.querySelectorAll("[formaction]")) el.removeAttribute("formaction");
+  for (const el of doc.querySelectorAll("input")) {
+    if (/^password$/i.test((el.getAttribute("type") || "").trim())) {
+      el.setAttribute("type", "text");
+      el.setAttribute("disabled", "");
+      el.setAttribute("readonly", "");
+      if (el.getAttribute("value")) el.setAttribute("value", "••••••••");
+    }
+  }
+  const credAttrPattern = /^(?:cc-number|card[-_]?number|cardnumber|cvv|cvc|security[-_]?code|ssn|social[-_]?security)/i;
+  for (const el of doc.querySelectorAll("[name], [id], [autocomplete]")) {
+    for (const attr of ["name", "id", "autocomplete"]) {
+      const val = (el.getAttribute(attr) || "").trim();
+      if (credAttrPattern.test(val)) {
+        if (attr === "autocomplete" || attr === "name") el.removeAttribute(attr);
+        else el.setAttribute(attr, `captured-${val}`);
+      }
     }
   }
   for (const el of doc.querySelectorAll("base[href]")) el.removeAttribute("href");
@@ -443,7 +464,14 @@ export function prepareDocument(doc, base, ownerDoc = doc) {
     charset.setAttribute("charset", "utf-8");
     doc.head.prepend(charset);
   }
-  for (const tpl of doc.querySelectorAll("template[shadowrootmode], template[shadowroot]")) {
+  for (const tpl of doc.querySelectorAll("template")) {
     if (tpl.content) prepareDocument(tpl.content, base, ownerDoc);
   }
+}
+
+export function neutralizeCapturedHtml(html) {
+  return String(html || "")
+    .replace(/(<input\b[^>]*?\btype\s*=\s*["']?)password\b/gi, "$1text")
+    .replace(/(<form\b[^>]*?)\s+\baction\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+)/gi, "$1")
+    .replace(/\b(name|id|autocomplete)(\s*=\s*["']?)(cc-number|card[-_]?number|cardnumber|cvv|cvc|security[-_]?code|ssn|social[-_]?security)/gi, "data-$1$2captured-$3");
 }

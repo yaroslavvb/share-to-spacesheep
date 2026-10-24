@@ -2,7 +2,7 @@ import { GREY_PNG } from "./capture-plan.js";
 // Package a web snapshot and its dependency graph. Files are named by source URL
 // (including query, excluding fragment), so CDN paths and image variants can't collide.
 import { isCss } from "./refs.js";
-import { assetUrl, urlKey, documentBase, isAllowedCdnAsset, prepareDocument, rewriteCss, rewriteDocument } from "./capture-refs.js";
+import { assetUrl, urlKey, documentBase, isAllowedCdnAsset, neutralizeCapturedHtml, prepareDocument, rewriteCss, rewriteDocument } from "./capture-refs.js";
 
 const encoder = new TextEncoder();
 const mimeExtensions = {
@@ -58,7 +58,7 @@ async function assetPath(key, type, bytes) {
 function serialize(doc, svg = false) {
   if (svg) return new XMLSerializer().serializeToString(doc);
   const doctype = doc.doctype ? new XMLSerializer().serializeToString(doc.doctype) : "<!DOCTYPE html>";
-  return `${doctype}\n${doc.documentElement.outerHTML}`;
+  return neutralizeCapturedHtml(`${doctype}\n${doc.documentElement.outerHTML}`);
 }
 
 /** Fetch outside the page's CORS restrictions using the extension's host access. */
