@@ -1,6 +1,6 @@
 # SheepIt — Apple App Store Submission Guide (`v0.6.3`, Build `10`)
 
-**Verified Fri 23 Oct 2026 (week 43):** development and distribution signing are configured on the M5; `0.6.3` (10) was installed and launched on the iPad, archived, exported, and uploaded to App Store Connect. Apple finished processing it and shows **Ready to Submit**. The **Public Testers** external group exists. Beta description, review contact information, and dedicated demo credentials still need completion before beta review and a public TestFlight link.
+**Verified Fri 23 Oct 2026 (week 43), 17:04 PDT:** development and distribution signing are configured on the M5; `0.6.3` (10) was installed and launched on the iPad, archived, exported, and uploaded to App Store Connect. Test Information is saved, the build is assigned to **Public Testers**, and it is **Waiting for Review**. The public invitation is [testflight.apple.com/join/Tu1RPMVr](https://testflight.apple.com/join/Tu1RPMVr). Apple does not allow testers to join until this group has an approved build; the public page currently says it is not accepting new testers.
 
 The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was already taken. The installed app still displays **SheepIt**.
 
@@ -95,6 +95,8 @@ This script exports the `.ipa`; it does not upload it. Use Xcode Organizer to up
    - Click **Get Started** on Data Types → Select **No, we do not collect data from this app** (all credentials stay in local device/App Group storage and uploads go directly to the user's own `spacesheep.dev` account).
 
 5. **App Review Information**:
+   - The current TestFlight submission uses a dedicated Spacesheep email-and-password demo account, stored only in App Store Connect. Its notes tell the reviewer to tap **Sign in with Spacesheep**, use the supplied User Name and Password, authorize SheepIt, and test publishing a URL or sharing from Safari. Do not paste the account password into **Use API key**.
+   - Keep demo credentials and reviewer contact details out of this public repository.
    - If providing a demo API key for the Apple Reviewer:
      - Check **Sign-in required**
      - In **Notes**:
