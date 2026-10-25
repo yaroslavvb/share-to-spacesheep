@@ -1,0 +1,95 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SheepIt image hydration regression</title>
+<pre id="results">Running…</pre>
+<script type="module">
+import { needsLiveDomRender, readSharedUrl } from "../app/src/main/assets/lib/share-engine.js";
+
+const results = [];
+const assert = (ok, message) => {
+  if (!ok) throw new Error(message);
+  results.push(message);
+};
+const parse = (html) => new DOMParser().parseFromString(html, "text/html");
+const text = "An article can have plenty of server-rendered text before its pictures appear. ".repeat(10);
+const picture = '<picture style="aspect-ratio:1.5"></picture>';
+const image = '<img src="https://news.example/photo.jpg" alt="Story photo">';
+// Reduced from Meduza's SSR structure: real content and a stylesheet, with an
+// empty picture that will be populated by the page's JavaScript.
+const shell = `<html><head><title>News</title><link rel="stylesheet" href="/site.css"></head><body><p>${text}</p>${picture}<script src="/hydrate.js"><\/script></body></html>`;
+
+try {
+  assert(needsLiveDomRender(parse(shell)), "SSR text with an empty picture requests a rendered DOM");
+  assert(!needsLiveDomRender(parse(shell.replace(picture, `<picture>${image}</picture>`))), "An already populated article keeps the static capture path");
+  assert(!needsLiveDomRender(parse(shell.replace(picture, ""))), "A static text article keeps the static capture path");
+  assert(needsLiveDomRender(parse('<body><div id="root"></div></body>')), "An empty application shell still requests a rendered DOM");
+
+  const checkReady = await (await fetch("../app/src/main/assets/dom/check-ready.js")).text();
+  const frame = document.createElement("iframe");
+  document.body.appendChild(frame);
+  await new Promise((resolve) => {
+    frame.onload = resolve;
+    frame.srcdoc = shell.replace('<script src="/hydrate.js"><\/script>', "").replace('<link rel="stylesheet" href="/site.css">', "");
+  });
+  assert(frame.contentWindow.eval(checkReady) === "wait", "A loaded document waits while its picture is empty");
+  frame.contentDocument.querySelector("picture").innerHTML = image;
+  assert(frame.contentWindow.eval(checkReady) === "ready", "The snapshot becomes ready after image hydration");
+  frame.remove();
+
+  let renders = 0;
+  let renderTimeout = 0;
+  let mainHtml = shell;
+  let mainFails = false;
+  let renderedHtml = shell.replace(picture, `<picture>${image}</picture>`);
+  const encoder = new TextEncoder();
+  const respond = (id, content, contentType) => setTimeout(() => window.__onBinaryResponse({
+    id, ok: true, contentType, b64: btoa(String.fromCharCode(...encoder.encode(content))),
+  }), 0);
+  window.AndroidBridge = {
+    fetchBinaryAsync(id, url) {
+      if (url === "https://news.example/" && mainFails) {
+        setTimeout(() => window.__onBinaryResponse({ id, ok: false, status: 403, error: "HTTP 403" }), 0);
+      }
+      else if (url === "https://news.example/") respond(id, mainHtml, "text/html");
+      else if (url.endsWith("site.css")) respond(id, "picture{display:block}", "text/css");
+      else if (url.endsWith("photo.jpg")) respond(id, "image bytes", "image/jpeg");
+      else throw new Error(`Unexpected asset: ${url}`);
+    },
+    renderPageSnapshot(id, url, timeoutMs) {
+      renders++;
+      renderTimeout = timeoutMs;
+      setTimeout(() => window.__onSnapshotResponse({
+        id, ok: true, finalUrl: "https://news.example/",
+        html: renderedHtml,
+      }), 0);
+    },
+    resetPageSnapshot() {},
+  };
+  const captured = await readSharedUrl("https://news.example/");
+  const full = captured.runFullCapture ? await captured.runFullCapture() : captured;
+  const html = await full.files.find((file) => file.path === "index.html").blob.text();
+  assert(renders === 1, "The URL capture requests hydration for the news fixture");
+  assert(renderTimeout === 12000, "Picture hydration receives the longer mobile rendering budget");
+  assert(full.files.some((file) => file.path.endsWith(".jpg")), "The hydrated article's image bytes are preserved");
+  assert(/<img[^>]+src="\.\/_assets\//.test(html), "The saved article points to its preserved image");
+  renderedHtml = shell;
+  async function rejectsBlankCapture(message) {
+    let error = null;
+    try { await readSharedUrl("https://news.example/"); }
+    catch (caught) { error = caught; }
+    assert(error?.code === "page_unreachable", message);
+  }
+  await rejectsBlankCapture("An unresolved picture after the render timeout fails instead of publishing a blank copy");
+  mainFails = true;
+  await rejectsBlankCapture("The network-error rendering fallback also rejects unresolved pictures");
+  mainFails = false;
+  mainHtml = '<html><body><div id="root"></div></body></html>';
+  await rejectsBlankCapture("An application shell that renders to unresolved pictures also fails clearly");
+  window.testResult = { ok: true, results };
+  document.querySelector("#results").textContent = `${results.length} checks passed\n${results.join("\n")}`;
+} catch (error) {
+  window.testResult = { ok: false, error: String(error), results };
+  document.querySelector("#results").textContent = String(error);
+  throw error;
+}
+</script>

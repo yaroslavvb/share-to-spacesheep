@@ -128,8 +128,18 @@ function cleanSpacesheepArtifacts(doc) {
   }
 }
 
-function needsLiveDomRender(doc) {
+function hasUnhydratedPictures(doc) {
+  for (const picture of doc.querySelectorAll("picture")) {
+    if (!picture.querySelector("img, source")) return true;
+  }
+  return false;
+}
+
+export function needsLiveDomRender(doc) {
   if (!doc || !doc.body) return true;
+  // Some server-rendered pages already contain article text and CSS, but leave
+  // their pictures empty until JavaScript hydrates them (for example Meduza).
+  if (hasUnhydratedPictures(doc)) return true;
   if (doc.querySelector("canvas, .drawer_container, d-article, d-title, d-math, d-figure, d-byline")) {
     return true;
   }
@@ -277,7 +287,8 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   // Only run offscreen WebView rendering when the static HTML requires JS execution
   // (e.g., client-side KaTeX/MathJax auto-render, <canvas>, or an empty SPA shell).
   if (!alreadyRenderedInWebView && needsLiveDomRender(doc)) {
-    const rendered = await tryParseRenderedDom(captureBaseUrl, 3000);
+    const needsPictures = hasUnhydratedPictures(doc);
+    const rendered = await tryParseRenderedDom(captureBaseUrl, needsPictures ? 12000 : 3000);
     renderDomMs += rendered.elapsedMs;
     if (rendered.doc) {
       doc = rendered.doc;
@@ -285,6 +296,12 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
       if (!contentIframe) finalUrl = rendered.finalUrl;
       if (!derivedTitle && rendered.title) derivedTitle = rendered.title;
     }
+  }
+  // Native timeout handlers may return a DOM even if hydration never finished.
+  // Apply this to every render path, including the network-error fallback.
+  if (hasUnhydratedPictures(doc)) {
+    resetSnapshotWebView();
+    throw new ReadError("page_unreachable", "Couldn't load this page's pictures. Try sharing it again.");
   }
 
   const readAssets = (urls) => Promise.all(urls.map((u) => fetchBinaryUrl(u, LIMITS.fileBytes)));
