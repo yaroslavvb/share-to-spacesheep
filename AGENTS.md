@@ -36,10 +36,19 @@ TestFlight link once there is one. The hub's other tabs (Status, Pages, Builds, 
 **A Log entry** goes under its week's heading, `### Week WW · D–D Mon YYYY` (the ISO week; a new week gets its
 heading at the top of the Log), newest entry first:
 
-    - **Fri 23 Oct, 09:16 · Release** **[What was added](link)** (public): one sentence on what it gives him.
+    - **Fri 23 Oct, 09:16 · Release · ChatGPT** **[What was added](link)** (public): one concise sentence.
+
+        <details markdown="1">
+        <summary>Details</summary>
+
+        What changed, how it was checked, and any next step.
+
+        </details>
 
 Kind is one word (App, Release, Fix, Page, Tool, Build, Speed). The pages speak to Yaroslav as "you". Say who can open
 each linked page: (public), (signed-in: why), (private: why). Times are Pacific.
+Both pages' logs use a concise one-line summary with an expandable details section. Mark the actual agent
+in the entry header: **ChatGPT**, **Gemini**, or **Claude**. Do not infer an older entry's agent when it is unknown.
 
 **Refresh, from the M5:**
 
@@ -65,6 +74,10 @@ each linked page: (public), (signed-in: why), (private: why). Times are Pacific.
 money or the spacesheep team's private code on them; link a private page only with its reason beside the link.
 
 ## Changelog
+
+- **2026-10-24 (Sat, week 43)** — Require concise one-line log summaries, expandable details, and the actual
+  agent label (ChatGPT, Gemini, or Claude) on both SheepIt pages; updated the entry example. *Why:* preference —
+  Yaroslav's ask, Sat 24 Oct 2026, to make the app log concise, expandable, and attributed by agent.
 
 - **2026-10-23 (Fri, week 43)** — Created: what the repo is, that it is public, where to start, and the rule that
   every change that ships updates the SheepIt Hub and the SheepIt app page on spacesheep.dev, with the Log entry's
