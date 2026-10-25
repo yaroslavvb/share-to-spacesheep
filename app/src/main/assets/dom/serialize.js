@@ -31,11 +31,16 @@
       // Responsive SSR may leave alternate layouts as skeletons. Since the
       // saved copy has no scripts to hydrate another layout, keep the selected
       // display modes at every width. Dimensions and typography stay responsive.
-      var originalBodyNodes = document.body.querySelectorAll("*");
-      var clonedBodyNodes = root.querySelector("body").querySelectorAll("*");
-      for (var bd = 0; bd < originalBodyNodes.length; bd++) {
-        var display = getComputedStyle(originalBodyNodes[bd]).display;
-        clonedBodyNodes[bd].style.setProperty("display", display, "important");
+      var clonedBody = root.querySelector("body");
+      if (clonedBody) {
+        var originalBodyNodes = document.body.querySelectorAll("*");
+        var clonedBodyNodes = clonedBody.querySelectorAll("*");
+        for (var bd = 0; bd < originalBodyNodes.length && bd < clonedBodyNodes.length; bd++) {
+          if (clonedBodyNodes[bd].style) {
+            var display = getComputedStyle(originalBodyNodes[bd]).display;
+            clonedBodyNodes[bd].style.setProperty("display", display, "important");
+          }
+        }
       }
     }
     var origAll = document.querySelectorAll("*");

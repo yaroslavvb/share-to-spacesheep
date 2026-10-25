@@ -3,12 +3,22 @@ import UniformTypeIdentifiers
 
 extension SpacesheepBridgeViewController {
 
+    static let maxSharedFileBytes = 25 * 1024 * 1024
+
     static func readSecurityScopedData(from url: URL) -> Data? {
         let accessed = url.startAccessingSecurityScopedResource()
         defer {
             if accessed { url.stopAccessingSecurityScopedResource() }
         }
-        return try? Data(contentsOf: url)
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           size > maxSharedFileBytes {
+            return nil
+        }
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
+              data.count <= maxSharedFileBytes else {
+            return nil
+        }
+        return data
     }
 
     func extractShareExtensionItems(from context: NSExtensionContext, completion: @escaping (String) -> Void) {
@@ -83,7 +93,7 @@ extension SpacesheepBridgeViewController {
                                 lock.lock()
                                 if foundUrl == nil { foundUrl = url }
                                 lock.unlock()
-                            } else if let textData = str.data(using: .utf8) {
+                            } else if let textData = str.data(using: .utf8), textData.count <= Self.maxSharedFileBytes {
                                 lock.lock()
                                 fileObjects.append([
                                     "name": "shared-note.txt",
@@ -111,7 +121,7 @@ extension SpacesheepBridgeViewController {
                                 "base64": fileData.base64EncodedString()
                             ])
                             lock.unlock()
-                        } else if let image = data as? UIImage, let pngData = image.pngData() {
+                        } else if let image = data as? UIImage, let pngData = image.pngData(), pngData.count <= Self.maxSharedFileBytes {
                             lock.lock()
                             fileObjects.append([
                                 "name": "shared-image.png",
@@ -153,7 +163,11 @@ extension SpacesheepBridgeViewController {
         let nsRange = NSRange(text.startIndex..<text.endIndex, in: text)
         guard let match = regex.firstMatch(in: text, options: [], range: nsRange),
               let range = Range(match.range, in: text) else { return nil }
-        return String(text[range])
+        var u = String(text[range])
+        while let last = u.last, [".", ",", ")", ";"].contains(String(last)) {
+            u.removeLast()
+        }
+        return u.isEmpty ? nil : u
     }
 
     static func mimeType(for ext: String) -> String {

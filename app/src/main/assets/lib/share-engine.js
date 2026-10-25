@@ -564,7 +564,7 @@ export async function publishPage(
           page.capture.copied = Math.max(0, fullCaptured.files.length - 1);
         }
         let deployFullMs = 0;
-        if (fullCaptured.files.length > initialFilesCount) {
+        if (fullCaptured.files.length > initialFilesCount || fullCaptured.bytes !== initialBytes) {
           const tDep2 = Date.now();
           const { files: fullDeployFiles } = await prepareDeployFiles(mcp, fullCaptured.files, {
             uuid: spaceId,

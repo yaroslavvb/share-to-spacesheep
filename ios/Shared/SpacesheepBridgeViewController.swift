@@ -425,21 +425,19 @@ import AuthenticationServices
     }
 
     private func openUrlExternally(_ url: URL) {
-        if let extContext = self.extensionContext {
-            extContext.open(url, completionHandler: nil)
-        }
         var responder: UIResponder? = self
         while let r = responder {
             if let app = r as? UIApplication {
                 app.open(url, options: [:], completionHandler: nil)
-                break
+                return
             }
             let sel = NSSelectorFromString("openURL:")
             if r.responds(to: sel) {
                 r.perform(sel, with: url)
-                break
+                return
             }
             responder = r.next
         }
+        self.extensionContext?.open(url, completionHandler: nil)
     }
 }

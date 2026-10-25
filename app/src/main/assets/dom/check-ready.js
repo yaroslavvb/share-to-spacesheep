@@ -13,11 +13,15 @@
     if (!pictures[i].querySelector("img, source")) {
       var rect = pictures[i].getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        // IntersectionObserver-based images only hydrate inside the capture
-        // viewport. Visit one pending picture per poll, within the same timeout.
-        window.__sheepitSnapshotScroll = window.__sheepitSnapshotScroll || { x: scrollX, y: scrollY };
-        pictures[i].scrollIntoView({ block: "center", behavior: "instant" });
-        return "wait";
+        var tries = (pictures[i].__sheepitWait || 0) + 1;
+        pictures[i].__sheepitWait = tries;
+        if (tries <= 4) {
+          // IntersectionObserver-based images only hydrate inside the capture
+          // viewport. Visit one pending picture per poll, within the same timeout.
+          window.__sheepitSnapshotScroll = window.__sheepitSnapshotScroll || { x: scrollX, y: scrollY };
+          pictures[i].scrollIntoView({ block: "center", behavior: "instant" });
+          return "wait";
+        }
       }
     }
   }

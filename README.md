@@ -5,8 +5,8 @@
 - **Install & Status Guide (with demo video):** [`https://spacesheep.dev/@yaroslavvb/sheepit-app`](https://spacesheep.dev/@yaroslavvb/sheepit-app)
 - **SheepIt Hub (Weekly Log, Pages & Builds):** [`https://spacesheep.dev/@yaroslavvb/sheepit-hub`](https://spacesheep.dev/@yaroslavvb/sheepit-hub)
 - **SheepIt Quality Control (23-Site Audit):** [`https://spacesheep.dev/@yaroslavvb/sheepit-quality-control`](https://spacesheep.dev/@yaroslavvb/sheepit-quality-control)
-- **Android app & Google Play bundle (`com.yaroslavvb.sheepit`):** `sheepit-v0.6.3.apk` / `sheepit-v0.6.3.aab` (version `0.6.3`, build `34`, API 37)
-- **iPhone & iPad app + Share Extension (`com.yaroslavvb.sheepit`):** `ios/ShareToSpacesheep.xcodeproj` (`sheepit-v0.6.3.ipa` / `sheepit-ios-simulator-v0.6.3.zip`)
+- **Android app & Google Play bundle (`com.yaroslavvb.sheepit`):** `sheepit-v0.6.4.apk` / `sheepit-v0.6.4.aab` (version `0.6.4`, build `40`, API 37)
+- **iPhone & iPad app + Share Extension (`com.yaroslavvb.sheepit`):** `ios/ShareToSpacesheep.xcodeproj` (version `0.6.4`, TestFlight build `13`)
 - **macOS Quick Action & Node CLI:** `bin/share-to-spacesheep.mjs` (`sheepit`)
 
 ---
@@ -20,12 +20,12 @@
 2. **Opt in to the testing track:** Open [`https://play.google.com/apps/testing/com.yaroslavvb.sheepit`](https://play.google.com/apps/testing/com.yaroslavvb.sheepit) and tap **Become a tester**.
 3. **Install from Google Play:** Tap **download it on Google Play** (or open [`https://play.google.com/store/apps/details?id=com.yaroslavvb.sheepit`](https://play.google.com/store/apps/details?id=com.yaroslavvb.sheepit) on your Android phone) and tap **Install**.
 
-#### Way 2: Direct APK (`sheepit-v0.6.3.apk` — no Google Group needed)
-1. **Direct APK Download:** Download [`sheepit-v0.6.3.apk`](https://github.com/yaroslavvb/share-to-spacesheep/releases/download/v0.6.3/sheepit-v0.6.3.apk) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) and open it on your Android phone.
+#### Way 2: Direct APK (`sheepit-v0.6.4.apk` — no Google Group needed)
+1. **Direct APK Download:** Download [`sheepit-v0.6.4.apk`](https://github.com/yaroslavvb/share-to-spacesheep/releases/download/v0.6.4/sheepit-v0.6.4.apk) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) and open it on your Android phone.
 2. **Auto-updates via Obtainium:** Add `https://github.com/yaroslavvb/share-to-spacesheep` to [Obtainium](https://github.com/ImranR98/Obtainium) on Android for one-tap updates.
 3. **Or install the `.aab` bundle from a computer with `bundletool`:**
    ```bash
-   bundletool build-apks --bundle=play-store/sheepit-v0.6.3.aab --output=sheepit.apks --connected-device
+   bundletool build-apks --bundle=play-store/sheepit-v0.6.4.aab --output=sheepit.apks --connected-device
    bundletool install-apks --apks=sheepit.apks
    ```
 4. **First-time sign-in:** Open **SheepIt** once and tap **Sign in with Spacesheep** (or paste an `ss_…` API key from `spacesheep.dev/settings/api-keys`).
@@ -59,8 +59,8 @@ Release a new version to Google Play in one command (auto-increments `versionCod
 ```
 
 All Google Play Store assets and metadata live in [`play-store/`](play-store/) and [`fastlane/metadata/android/en-US/`](fastlane/metadata/android/en-US/):
-- **Signed Release Android App Bundle (`.aab`):** `play-store/sheepit-v0.6.3.aab` (`play-store/sheepit-latest.aab`)
-- **Signed Release APK (`.apk`):** `play-store/sheepit-v0.6.3.apk` (`play-store/sheepit-latest.apk`)
+- **Signed Release Android App Bundle (`.aab`):** `play-store/sheepit-v0.6.4.aab` (`play-store/sheepit-latest.aab`)
+- **Signed Release APK (`.apk`):** `play-store/sheepit-v0.6.4.apk` (`play-store/sheepit-latest.apk`)
 - **512×512 High-Res Icon:** [`play-store/icon-512x512.png`](play-store/icon-512x512.png)
 - **1024×500 Feature Graphic:** [`play-store/feature-graphic-1024x500.png`](play-store/feature-graphic-1024x500.png)
 - **Phone & Tablet Screenshots:** [`play-store/screenshots/`](play-store/screenshots/)

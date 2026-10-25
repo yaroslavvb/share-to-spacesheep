@@ -65,7 +65,7 @@ def resolveMonotonicVersionCode = { int minCode ->
 }
 
 def latestStableSdk = resolveLatestStableSdk(37)
-def autoVersionCode = resolveMonotonicVersionCode(34)
+def autoVersionCode = resolveMonotonicVersionCode(40)
 def isReleaseTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
 def includeSeedKey = project.hasProperty("seedKey") && project.property("seedKey").toString().toBoolean()
 
@@ -78,7 +78,7 @@ android {
         minSdk = 26
         targetSdk = latestStableSdk
         versionCode = autoVersionCode
-        versionName = "0.6.3"
+        versionName = "0.6.4"
     }
 
     androidResources {

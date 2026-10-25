@@ -4,6 +4,7 @@
 <pre id="results">Running…</pre>
 <script type="module">
 import { needsLiveDomRender, readSharedUrl } from "../app/src/main/assets/lib/share-engine.js";
+import { prepareDocument } from "../app/src/main/assets/lib/capture-refs.js";
 
 const results = [];
 const assert = (ok, message) => {
@@ -24,6 +25,9 @@ try {
   assert(!needsLiveDomRender(parse(shell.replace(picture, `<picture>${image}</picture>`))), "An already populated article keeps the static capture path");
   assert(!needsLiveDomRender(parse(shell.replace(picture, ""))), "A static text article keeps the static capture path");
   assert(needsLiveDomRender(parse('<body><div id="root"></div></body>')), "An empty application shell still requests a rendered DOM");
+  const sourceOnlyDoc = parse('<html><body><picture><source data-srcset="https://news.example/photo-1x.jpg 1x, https://news.example/photo-2x.jpg 2x"></picture></body></html>');
+  prepareDocument(sourceOnlyDoc, new URL("https://news.example/"));
+  assert(sourceOnlyDoc.querySelector("picture img")?.getAttribute("src") === "https://news.example/photo-2x.jpg", "A picture hydrated with only source[data-srcset] synthesizes an img with the highest-res URL");
 
   const checkReady = await (await fetch("../app/src/main/assets/dom/check-ready.js")).text();
   const frame = document.createElement("iframe");
@@ -54,6 +58,36 @@ try {
   assert(frame.contentWindow.eval(checkReady) === "ready", "The snapshot becomes ready after image hydration");
   assert(frame.contentWindow.scrollY === originalScroll, "Readiness restores the original scroll position before the snapshot");
   frame.remove();
+
+  // Regression: a stuck empty <picture> near the top must not starve a second offscreen <picture> below it.
+  const multiFrame = document.createElement("iframe");
+  document.body.appendChild(multiFrame);
+  await new Promise((resolve) => {
+    multiFrame.onload = resolve;
+    multiFrame.srcdoc = `<html><head><style>picture{display:block;width:160px;height:100px}</style></head><body><picture id="stuck"></picture><p style="height:900px">${text}</p><picture id="second"></picture></body></html>`;
+  });
+  const secondPic = multiFrame.contentDocument.querySelector("#second");
+  let secondVisited = false;
+  const secondHydrated = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("Second offscreen picture was starved by stuck first picture")), 2000);
+    const obs = new multiFrame.contentWindow.IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        secondVisited = true;
+        secondPic.innerHTML = image;
+        obs.disconnect();
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    obs.observe(secondPic);
+  });
+  for (let poll = 0; poll < 5; poll++) {
+    assert(multiFrame.contentWindow.eval(checkReady) === "wait", `Poll ${poll + 1} waits while visiting pictures`);
+  }
+  await secondHydrated;
+  assert(secondVisited, "Readiness advances past a stuck empty picture to hydrate subsequent offscreen pictures");
+  assert(multiFrame.contentWindow.eval(checkReady) === "ready", "Readiness completes after visiting all pending pictures");
+  multiFrame.remove();
 
   const serialize = await (await fetch("../app/src/main/assets/dom/serialize.js")).text();
   const pixel = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"%3E%3Crect width="10" height="10" fill="green"/%3E%3C/svg%3E';

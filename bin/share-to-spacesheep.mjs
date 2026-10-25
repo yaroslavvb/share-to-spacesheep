@@ -300,7 +300,7 @@ function captureLocalHtmlOnComputer(filePath, customTitle = "", maxAssets = 1000
 async function deploySpace(mcp, built, { spaceUuid = null, visibility = null } = {}) {
   const totalBytes = built.files.reduce((n, f) => n + (f.bytes ? f.bytes.length : Buffer.byteLength(f.content || "")), 0);
   let deployFiles;
-  if (totalBytes <= 1.5 * 1024 * 1024) {
+  if (totalBytes <= 256 * 1024 && built.files.length <= 4) {
     deployFiles = built.files.map(({ path: p, content, encoding }) =>
       encoding ? { path: p, content, encoding } : { path: p, content }
     );
@@ -309,25 +309,26 @@ async function deploySpace(mcp, built, { spaceUuid = null, visibility = null } =
     if (visibility) stageArgs.visibility = visibility;
     const begin = await mcp.call("stage_begin", stageArgs);
     if (!begin || !begin.upload_url) throw new Error("stage_begin did not return an upload_url");
-    deployFiles = [];
-    for (const f of built.files) {
-      const rawBytes = f.bytes || (f.encoding === "base64" ? Buffer.from(f.content, "base64") : Buffer.from(f.content, "utf-8"));
-      const putResp = await fetch(`${begin.upload_url}?path=${encodeURIComponent(f.path)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/octet-stream" },
-        body: rawBytes,
-      });
-      const putJson = await putResp.json();
-      if (!putResp.ok || !putJson.sha) {
-        throw new Error(`Staging ${f.path} failed: ${putJson.error || putResp.status}`);
-      }
-      deployFiles.push({ path: f.path, staged_sha: putJson.sha });
-    }
+    deployFiles = await Promise.all(
+      built.files.map(async (f) => {
+        const rawBytes = f.bytes || (f.encoding === "base64" ? Buffer.from(f.content, "base64") : Buffer.from(f.content, "utf-8"));
+        const putResp = await fetch(`${begin.upload_url}?path=${encodeURIComponent(f.path)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: rawBytes,
+        });
+        const putJson = await putResp.json();
+        if (!putResp.ok || !putJson.sha) {
+          throw new Error(`Staging ${f.path} failed: ${putJson.error || putResp.status}`);
+        }
+        return { path: f.path, staged_sha: putJson.sha };
+      }),
+    );
   }
 
   const deployArgs = {
     files: deployFiles,
-    version_name: `${spaceUuid ? "Updated" : "Moved"} from Share to spacesheep`,
+    version_name: `${spaceUuid ? "Updated" : "Moved"} from SheepIt`,
   };
   if (spaceUuid) {
     deployArgs.uuid = spaceUuid;

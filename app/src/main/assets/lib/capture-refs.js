@@ -373,13 +373,17 @@ export function prepareDocument(doc, base, ownerDoc = doc) {
   // Collapse <picture> and <img srcset> multi-resolution variants to a single highest-res <img>
   // so each figure uses 1 asset slot instead of 6-8 redundant width/format copies.
   for (const pic of doc.querySelectorAll("picture")) {
-    const img = pic.querySelector("img");
+    let img = pic.querySelector("img");
+    if (!img && pic.querySelector("source[srcset], source[src]")) {
+      img = ownerDoc.createElement("img");
+      pic.appendChild(img);
+    }
     if (!img) continue;
     const curSrc = (img.getAttribute("src") || "").trim();
     const bestImgSet = bestSrcsetUrl(img.getAttribute("srcset"));
     let bestSourceSet = null;
-    for (const srcEl of pic.querySelectorAll("source[srcset]")) {
-      const candidate = bestSrcsetUrl(srcEl.getAttribute("srcset"));
+    for (const srcEl of pic.querySelectorAll("source[srcset], source[src]")) {
+      const candidate = bestSrcsetUrl(srcEl.getAttribute("srcset") || srcEl.getAttribute("src"));
       if (candidate && !bestSourceSet) bestSourceSet = candidate;
       srcEl.remove();
     }
