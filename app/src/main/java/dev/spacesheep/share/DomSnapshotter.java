@@ -31,6 +31,7 @@ public final class DomSnapshotter {
     private final String webglHookJs;
     private final String checkReadyJs;
     private final String serializeJs;
+    private final String fetchAssetJs;
 
     private int activeId = 0;
     private Runnable timeoutTask = null;
@@ -43,6 +44,7 @@ public final class DomSnapshotter {
         this.webglHookJs = loadAssetScript(context, "dom/webgl-hook.js");
         this.checkReadyJs = loadAssetScript(context, "dom/check-ready.js");
         this.serializeJs = loadAssetScript(context, "dom/serialize.js");
+        this.fetchAssetJs = loadAssetScript(context, "dom/fetch-asset.js");
 
         this.webView = new WebView(context) {
             @Override
@@ -192,48 +194,8 @@ public final class DomSnapshotter {
 
     public void fetchAsset(final int id, final String url, final long maxBytes) {
         mainHandler.post(() -> {
-            String js = "(async function() {" +
-                    "  try {" +
-                    "    var u = " + JSONObject.quote(url) + ";" +
-                    "    var r;" +
-                    "    try { r = await fetch(u, { credentials: 'same-origin', cache: 'force-cache' }); } catch(e) {}" +
-                    "    if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'same-origin' }); } catch(e) {} }" +
-                    "    if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }" +
-                    "    if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });" +
-                    "    if (!r.ok) {" +
-                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'HTTP ' + r.status }));" +
-                    "      return;" +
-                    "    }" +
-                    "    var cl = Number(r.headers.get('content-length') || 0);" +
-                    "    if (cl > " + maxBytes + ") {" +
-                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'too_big' }));" +
-                    "      return;" +
-                    "    }" +
-                    "    var blob = await r.blob();" +
-                    "    if (blob.size > " + maxBytes + ") {" +
-                    "      window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: 'too_big' }));" +
-                    "      return;" +
-                    "    }" +
-                    "    var b64 = await new Promise(function(resolve, reject) {" +
-                    "      var reader = new FileReader();" +
-                    "      reader.onloadend = function() {" +
-                    "        var res = String(reader.result || '');" +
-                    "        var idx = res.indexOf(',');" +
-                    "        resolve(idx >= 0 ? res.slice(idx + 1) : '');" +
-                    "      };" +
-                    "      reader.onerror = reject;" +
-                    "      reader.readAsDataURL(blob);" +
-                    "    });" +
-                    "    window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({" +
-                    "      ok: true," +
-                    "      base64: b64," +
-                    "      contentType: blob.type || r.headers.get('content-type') || ''," +
-                    "      finalUrl: r.url || u" +
-                    "    }));" +
-                    "  } catch (err) {" +
-                    "    window.AndroidSnapshotBridge.onAssetFetched(" + id + ", JSON.stringify({ ok: false, error: String(err && err.message || err) }));" +
-                    "  }" +
-                    "})()";
+            String js = fetchAssetJs.trim() + "(" + JSONObject.quote(url) + ", " + maxBytes + ")"
+                    + ".then(function(j) { window.AndroidSnapshotBridge.onAssetFetched(" + id + ", j); });";
             webView.evaluateJavascript(js, null);
         });
     }

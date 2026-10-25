@@ -1,16 +1,20 @@
-// Asset reference constants and filename helpers shared by capture-refs.js.
+// Elements whose attribute names a file the page loads (never <a href>: a link is
+// somewhere to go, not part of the page).
+export const LOADS = [
+  ["img", "src"], ["img", "srcset"], ["source", "srcset"],
+  ["script", "src"], ["video", "poster"],
+  ["embed", "src"], ["object", "data"],
+  ["input", "src"], ["image", "href"], ["image", "xlink:href"], ["use", "href"],
+  ["use", "xlink:href"], ["feImage", "href"],
+];
+export const LINK_RELS = /(^|\s)(stylesheet|icon|shortcut|apple-touch-icon|mask-icon|preload|modulepreload|prefetch|manifest)(\s|$)/i;
 
-export const LOADS = new Set(["img", "source", "video", "audio", "track", "script", "embed", "object", "input", "image", "use", "feimage"]);
-export const LINK_RELS = new Set(["stylesheet", "icon", "shortcut icon", "apple-touch-icon", "apple-touch-icon-precomposed", "mask-icon", "preload"]);
-
-export function fileName(raw, fallback = "asset") {
-  const clean = raw.split("#")[0].split("?")[0];
-  let seg = clean.slice(clean.lastIndexOf("/") + 1);
-  try { seg = decodeURIComponent(seg); } catch {}
-  seg = seg.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/^\.+/, "");
-  return seg || fallback;
+/** The file name at the end of a URL, decoded ("my report.html"), or "". */
+export function fileName(pageUrl) {
+  const u = new URL(pageUrl);
+  const last = u.pathname.slice(u.pathname.lastIndexOf("/") + 1);
+  try { return decodeURIComponent(last); } catch { return last; }
 }
 
-export function isCss(path, type = "") {
-  return type.includes("text/css") || /\.css$/i.test(path);
-}
+/** Whether a file is a stylesheet whose own url()s are worth following. */
+export const isCss = (path, type) => /\.css$/i.test(path) || /text\/css/i.test(type || "");

@@ -6,6 +6,7 @@ extension SpacesheepBridgeViewController {
     private static let webglHookJs = loadWebAssetScript("webgl-hook")
     private static let checkReadyJs = loadWebAssetScript("check-ready")
     private static let serializeJs = loadWebAssetScript("serialize")
+    private static let fetchAssetJs = loadWebAssetScript("fetch-asset")
 
     func performRenderPageSnapshot(snapId: Int, urlStr: String, timeoutMs: Int) {
         guard let url = URL(string: urlStr) else {
@@ -60,38 +61,7 @@ extension SpacesheepBridgeViewController {
             mainWebView.evaluateJavaScript("window.__onSnapshotAssetResponse && window.__onSnapshotAssetResponse(\(errJson));", completionHandler: nil)
             return
         }
-        let jsBody = """
-        try {
-          var r;
-          try { r = await fetch(u, { credentials: 'same-origin', cache: 'force-cache' }); } catch(e) {}
-          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'same-origin' }); } catch(e) {} }
-          if (!r || !r.ok) { try { r = await fetch(u, { credentials: 'include', cache: 'force-cache' }); } catch(e) {} }
-          if (!r || !r.ok) r = await fetch(u, { credentials: 'include' });
-          if (!r.ok) return JSON.stringify({ ok: false, error: 'HTTP ' + r.status });
-          var cl = Number(r.headers.get('content-length') || 0);
-          if (cl > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
-          var blob = await r.blob();
-          if (blob.size > maxBytes) return JSON.stringify({ ok: false, error: 'too_big' });
-          var b64 = await new Promise(function(resolve, reject) {
-            var reader = new FileReader();
-            reader.onloadend = function() {
-              var res = String(reader.result || '');
-              var idx = res.indexOf(',');
-              resolve(idx >= 0 ? res.slice(idx + 1) : '');
-            };
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          return JSON.stringify({
-            ok: true,
-            base64: b64,
-            contentType: blob.type || r.headers.get('content-type') || '',
-            finalUrl: r.url || u
-          });
-        } catch (err) {
-          return JSON.stringify({ ok: false, error: String(err && err.message || err) });
-        }
-        """
+        let jsBody = "return await (\(Self.fetchAssetJs))(u, maxBytes);"
         capWebView.callAsyncJavaScript(jsBody, arguments: ["u": urlStr, "maxBytes": maxBytes], in: nil, in: .page) { [weak self] result in
             guard let self = self else { return }
             if case .success(let val) = result,

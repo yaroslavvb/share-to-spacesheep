@@ -411,6 +411,13 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static Map<String, String> corsHeaders(boolean noCache) {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Access-Control-Allow-Origin", "*");
+        if (noCache) headers.put("Cache-Control", "no-cache");
+        return headers;
+    }
+
     private WebResourceResponse handleAppAssetRequest(Uri uri) {
         String path = uri.getPath();
         if (path == null || path.isEmpty() || "/".equals(path)) {
@@ -426,15 +433,9 @@ public class MainActivity extends Activity {
         String assetPath = path.replaceFirst("^/+", "");
         try {
             InputStream is = getAssets().open(assetPath);
-            String mime = guessMimeType(assetPath);
-            Map<String, String> headers = new HashMap<>();
-            headers.put("Access-Control-Allow-Origin", "*");
-            headers.put("Cache-Control", "no-cache");
-            return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, is);
+            return new WebResourceResponse(guessMimeType(assetPath), "UTF-8", 200, "OK", corsHeaders(true), is);
         } catch (Exception e) {
-            Map<String, String> headers = new HashMap<>();
-            headers.put("Access-Control-Allow-Origin", "*");
-            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers,
+            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", corsHeaders(false),
                     new ByteArrayInputStream("Not found".getBytes(StandardCharsets.UTF_8)));
         }
     }
@@ -442,19 +443,17 @@ public class MainActivity extends Activity {
     private WebResourceResponse handleSharedFileStream(Uri uri) {
         String id = uri.getQueryParameter("id");
         Uri fileUri = id != null ? sharedFileUris.get(id) : null;
-        Map<String, String> headers = new HashMap<>();
-        headers.put("Access-Control-Allow-Origin", "*");
         if (fileUri == null) {
-            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", headers,
+            return new WebResourceResponse("text/plain", "UTF-8", 404, "Not Found", corsHeaders(false),
                     new ByteArrayInputStream(new byte[0]));
         }
         try {
             InputStream is = getContentResolver().openInputStream(fileUri);
             String mime = getContentResolver().getType(fileUri);
             if (mime == null || mime.isEmpty()) mime = "application/octet-stream";
-            return new WebResourceResponse(mime, null, 200, "OK", headers, is);
+            return new WebResourceResponse(mime, null, 200, "OK", corsHeaders(false), is);
         } catch (Exception e) {
-            return new WebResourceResponse("text/plain", "UTF-8", 500, "Error", headers,
+            return new WebResourceResponse("text/plain", "UTF-8", 500, "Error", corsHeaders(false),
                     new ByteArrayInputStream(new byte[0]));
         }
     }

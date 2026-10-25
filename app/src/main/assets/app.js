@@ -3,7 +3,7 @@ import { extension } from "./lib/browser.js";
 import { isConnected, signIn, signOut, saveApiKey } from "./lib/auth.js";
 import { Mcp } from "./lib/mcp.js";
 import { FREE_CAPTURE, capturePolicy, captureNotice } from "./lib/capture-plan.js";
-import { KIND_WORD, humanSize } from "./lib/kinds.js";
+import { KIND_WORD, KIND_ICON, humanSize } from "./lib/kinds.js";
 import { hasAndroidBridge, pickDeviceFiles } from "./lib/native-http.js";
 import {
   LIMITS,
@@ -29,7 +29,6 @@ const keyBox = document.getElementById("key-box");
 const keyInput = document.getElementById("key-input");
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-const ICON = { page: "📄", image: "🖼️", pdf: "📕", video: "🎬", audio: "🎧", text: "📝", file: "📦", site: "🌐", collection: "🗂️" };
 
 const WHO_CAN_OPEN = {
   private: "Only you can open it until you share it.",
@@ -270,7 +269,7 @@ async function renderReady(page) {
   const connected = await isConnected();
   const before = await getMovedForUrl(page.sourceUrl);
 
-  view.querySelector(".doc").textContent = ICON[page.kind] || "📄";
+  view.querySelector(".doc").textContent = KIND_ICON[page.kind] || "📄";
   view.querySelector(".title").textContent = page.title;
   const where = page.isFile ? page.name : shortUrl(page.sourceUrl);
   if (page.kind === "page") {
@@ -448,6 +447,13 @@ function readingWords(step, a, b, c) {
 async function startPublish(page, uuid = null, visibility = null) {
   currentPage = page;
   let currentOutcome = null;
+  const handlePublishError = async (e) => {
+    const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
+    await renderFoot().catch(() => {});
+    renderProblem(e && e.code, String((e && e.message) || e), {
+      retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
+    });
+  };
   try {
     renderWorking({ step: "publishing", title: page.title });
     const outcome = await publishPage(page, {
@@ -478,22 +484,12 @@ async function startPublish(page, uuid = null, visibility = null) {
           ...doneInfo,
         });
       },
-      onBackgroundError: (e) => {
-        const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
-        renderFoot().catch(() => {});
-        renderProblem(e && e.code, String((e && e.message) || e), {
-          retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
-        });
-      },
+      onBackgroundError: handlePublishError,
     });
     currentOutcome = outcome;
     await renderDone(outcome);
   } catch (e) {
-    const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
-    await renderFoot();
-    renderProblem(e && e.code, String((e && e.message) || e), {
-      retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
-    });
+    await handlePublishError(e);
   }
 }
 

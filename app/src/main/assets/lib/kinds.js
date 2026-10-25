@@ -47,6 +47,12 @@ export const KIND_WORD = {
   text: "text file", file: "file",
 };
 
+/** Icon for each content kind. */
+export const KIND_ICON = {
+  page: "📄", image: "🖼️", pdf: "📕", video: "🎬", audio: "🔊",
+  text: "📝", file: "📎", folder: "📁",
+};
+
 /** A safe file name for a space: no folders, no leading dot, nothing a path can't hold. */
 export function safeName(name, fallback = "file") {
   const base = String(name || "").split(/[\\/]/).pop().replace(/[\0-\x1f<>:"|?*]/g, "").replace(/^\.+/, "").trim();

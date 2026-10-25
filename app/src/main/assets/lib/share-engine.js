@@ -4,10 +4,10 @@ import { isConnected, signIn, AuthError } from "./auth.js";
 import { Mcp, warmMcpConnection } from "./mcp.js";
 import { capturePolicy } from "./capture-plan.js";
 import { fitToPlan } from "./plan.js";
-import { kindOf, titleFromName } from "./kinds.js";
+import { kindOf, titleFromName, KIND_ICON } from "./kinds.js";
 import { fileName } from "./refs.js";
 import { buildSingle, buildMany } from "./build.js";
-import { captureWeb } from "./capture.js";
+import { captureWeb, decode } from "./capture.js";
 import { neutralizeCapturedHtml } from "./capture-refs.js";
 import { fetchBinaryUrl, nativeFetch, renderPageDom, resetSnapshotWebView } from "./native-http.js";
 
@@ -20,31 +20,13 @@ export const LIMITS = {
 
 const INLINE_BYTES = 8 * 1024 * 1024;
 const MOVED_KEEP = 300;
-const EMOJI = {
-  page: "📄",
-  image: "🖼️",
-  pdf: "📕",
-  video: "🎬",
-  audio: "🎧",
-  text: "📝",
-  file: "📦",
-  site: "🌐",
-  collection: "🗂️",
-};
+const EMPTY_SKIPPED = { outside: 0, missing: 0, tooBig: 0, overLimit: 0 };
+const stripSpacesheepSuffix = (s) => String(s || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();
 
 export class ReadError extends Error {
   constructor(code, message) {
     super(message || code);
     this.code = code;
-  }
-}
-
-function decodeHtml(bytes, contentType = "") {
-  const charset = /charset\s*=\s*["']?([^\s;"']+)/i.exec(contentType || "")?.[1] || "utf-8";
-  try {
-    return new TextDecoder(charset).decode(bytes);
-  } catch {
-    return new TextDecoder().decode(bytes);
   }
 }
 
@@ -150,14 +132,53 @@ function needsLiveDomRender(doc) {
   if (doc.querySelector("canvas, .drawer_container, d-article, d-title, d-math, d-figure, d-byline")) {
     return true;
   }
-  if (
-    !doc.querySelector('link[rel~="stylesheet" i], style') &&
-    doc.querySelector("script[src]")
-  ) {
+  if (!doc.querySelector('link[rel~="stylesheet" i], style') && doc.querySelector("script[src]")) {
     return true;
   }
-  const textLen = (doc.body.textContent || "").replace(/\s+/g, " ").trim().length;
-  return textLen < 350;
+  return (doc.body.textContent || "").replace(/\s+/g, " ").trim().length < 350;
+}
+
+async function tryParseRenderedDom(url, timeoutMs) {
+  const t0 = Date.now();
+  const rendered = await renderPageDom(url, timeoutMs);
+  const elapsedMs = Date.now() - t0;
+  const finalUrl = String((rendered && rendered.finalUrl) || "");
+  if (
+    rendered &&
+    rendered.ok &&
+    rendered.html &&
+    !finalUrl.startsWith("chrome-error:") &&
+    !finalUrl.startsWith("about:")
+  ) {
+    const doc = new DOMParser().parseFromString(rendered.html, "text/html");
+    const isErrorPage = !!doc.querySelector("#main-frame-error, .neterror");
+    if (!isErrorPage && doc.body && doc.body.innerHTML.trim().length > 0) {
+      cleanSpacesheepArtifacts(doc);
+      return {
+        doc,
+        finalUrl: /^https?:\/\//i.test(finalUrl) ? finalUrl : url,
+        title: rendered.title ? stripSpacesheepSuffix(rendered.title) : "",
+        elapsedMs,
+      };
+    }
+  }
+  return { doc: null, finalUrl: "", title: "", elapsedMs };
+}
+
+function makeBuiltPageResult(built, { sourceUrl = null, name, isFile, size }) {
+  return {
+    title: built.title,
+    kind: built.kind,
+    note: built.note,
+    sourceUrl,
+    name,
+    isFile,
+    size,
+    files: built.files,
+    skipped: { ...EMPTY_SKIPPED },
+    snapshot: false,
+    bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
+  };
 }
 
 /**
@@ -171,7 +192,6 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   const fetchMainMs = Date.now() - t0;
   let renderDomMs = 0;
   let finalUrl = (main && main.finalUrl) || url;
-  let html = "";
   let doc = null;
   let captureBaseUrl = finalUrl;
   let derivedTitle = "";
@@ -183,70 +203,39 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
     }
     // Many Cloudflare-protected sites return HTTP 403/503 to HttpURLConnection
     // but load cleanly in the real Chromium WebView (renderPageDom).
-    const tR0 = Date.now();
-    const fallbackRender = await renderPageDom(url, 12000);
-    renderDomMs += Date.now() - tR0;
-    const fallbackUrl = String((fallbackRender && fallbackRender.finalUrl) || "");
-    if (
-      fallbackRender &&
-      fallbackRender.ok &&
-      fallbackRender.html &&
-      !fallbackUrl.startsWith("chrome-error:") &&
-      !fallbackUrl.startsWith("about:")
-    ) {
-      const renderedDoc = new DOMParser().parseFromString(fallbackRender.html, "text/html");
-      const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
-      if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
-        doc = renderedDoc;
-        cleanSpacesheepArtifacts(doc);
-        finalUrl = fallbackUrl || url;
-        captureBaseUrl = finalUrl;
-        alreadyRenderedInWebView = true;
-        if (fallbackRender.title) {
-          derivedTitle = fallbackRender.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
-        }
-      }
-    }
-    if (!doc) {
+    const fallback = await tryParseRenderedDom(url, 12000);
+    renderDomMs += fallback.elapsedMs;
+    if (fallback.doc) {
+      doc = fallback.doc;
+      finalUrl = fallback.finalUrl;
+      captureBaseUrl = finalUrl;
+      alreadyRenderedInWebView = true;
+      derivedTitle = fallback.title;
+    } else {
       throw new ReadError(
         "page_unreachable",
-        `Couldn't load ${ url } (${ (main && main.error) || "connection failed" }).`
+        `Couldn't load ${url} (${(main && main.error) || "connection failed"}).`
       );
     }
   } else {
     const rawType = (main.type || "").split(";")[0].trim().toLowerCase();
     const kind = kindOf(rawType, fileName(finalUrl));
 
-    // Non-HTML file (image, PDF, video, audio, Markdown, CSV, JSON, text, archive)
     if (kind !== "page") {
       onStep("file");
       const name = fileName(finalUrl) || new URL(finalUrl).hostname;
       const blob = new Blob([main.bytes], { type: rawType || "application/octet-stream" });
       const built = await buildSingle({ name, type: rawType, blob, title: suggestedTitle || undefined }, onStep);
-      return {
-        title: built.title,
-        kind: built.kind,
-        note: built.note,
-        sourceUrl: finalUrl,
-        name,
-        isFile: false,
-        size: blob.size,
-        files: built.files,
-        skipped: { outside: 0, missing: 0, tooBig: 0, overLimit: 0 },
-        snapshot: false,
-        bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
-      };
+      return makeBuiltPageResult(built, { sourceUrl: finalUrl, name, isFile: false, size: blob.size });
     }
 
-    html = decodeHtml(main.bytes, main.type);
-    doc = new DOMParser().parseFromString(html, "text/html");
+    doc = new DOMParser().parseFromString(decode(main.bytes, main.type), "text/html");
   }
 
   // Check if this is a spacesheep.dev viewer page wrapping an inner content iframe,
   // or a private spacesheep.dev space that redirected to /signin.
-  const origHost = (() => {
-    try { return new URL(url).hostname; } catch { return ""; }
-  })();
+  let origHost = "";
+  try { origHost = new URL(url).hostname; } catch {}
 
   if (origHost === "spacesheep.dev" && finalUrl.includes("/signin") && (await isConnected())) {
     try {
@@ -267,46 +256,26 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   const contentIframe = doc.querySelector('iframe#content[src*="spacesheep.app"]');
   if (contentIframe) {
     const spaceTitleEl = doc.querySelector("#spaceTitle");
-    derivedTitle =
-      (spaceTitleEl && spaceTitleEl.textContent.trim()) ||
-      (doc.title || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();
+    derivedTitle = (spaceTitleEl && spaceTitleEl.textContent.trim()) || stripSpacesheepSuffix(doc.title);
     const iframeSrc = new URL(contentIframe.getAttribute("src"), finalUrl).href;
     const inner = await fetchBinaryUrl(iframeSrc, LIMITS.mainBytes);
     if (inner && inner.bytes && inner.bytes.length) {
       captureBaseUrl = inner.finalUrl || iframeSrc;
-      html = decodeHtml(inner.bytes, inner.type);
-      doc = new DOMParser().parseFromString(html, "text/html");
+      doc = new DOMParser().parseFromString(decode(inner.bytes, inner.type), "text/html");
       cleanSpacesheepArtifacts(doc);
     }
   }
 
   // Only run offscreen WebView rendering when the static HTML requires JS execution
   // (e.g., client-side KaTeX/MathJax auto-render, <canvas>, or an empty SPA shell).
-  if (!alreadyRenderedInWebView && needsLiveDomRender(doc, html)) {
-    const tR1 = Date.now();
-    const rendered = await renderPageDom(captureBaseUrl, 3000);
-    renderDomMs += Date.now() - tR1;
-    const renderedUrl = String((rendered && rendered.finalUrl) || "");
-    if (
-      rendered &&
-      rendered.ok &&
-      rendered.html &&
-      !renderedUrl.startsWith("chrome-error:") &&
-      !renderedUrl.startsWith("about:")
-    ) {
-      const renderedDoc = new DOMParser().parseFromString(rendered.html, "text/html");
-      const isErrorPage = !!renderedDoc.querySelector("#main-frame-error, .neterror");
-      if (!isErrorPage && renderedDoc.body && renderedDoc.body.innerHTML.trim().length > 0) {
-        doc = renderedDoc;
-        cleanSpacesheepArtifacts(doc);
-        if (renderedUrl && /^https?:\/\//i.test(renderedUrl)) {
-          captureBaseUrl = renderedUrl;
-          if (!contentIframe) finalUrl = renderedUrl;
-        }
-        if (!derivedTitle && rendered.title) {
-          derivedTitle = rendered.title.replace(/\s*[—-]\s*spacesheep$/i, "").trim();
-        }
-      }
+  if (!alreadyRenderedInWebView && needsLiveDomRender(doc)) {
+    const rendered = await tryParseRenderedDom(captureBaseUrl, 3000);
+    renderDomMs += rendered.elapsedMs;
+    if (rendered.doc) {
+      doc = rendered.doc;
+      captureBaseUrl = rendered.finalUrl;
+      if (!contentIframe) finalUrl = rendered.finalUrl;
+      if (!derivedTitle && rendered.title) derivedTitle = rendered.title;
     }
   }
 
@@ -336,9 +305,8 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
   }
 
   const name = fileName(finalUrl) || new URL(finalUrl).hostname;
-  const rawDocTitle = (doc.title || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();
-  const cleanSuggested = (suggestedTitle || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();
-  const finalTitle = derivedTitle || rawDocTitle || cleanSuggested || name;
+  const finalTitle =
+    derivedTitle || stripSpacesheepSuffix(doc.title) || stripSpacesheepSuffix(suggestedTitle) || name;
 
   return {
     ...captured,
@@ -386,19 +354,11 @@ export async function readSharedFiles(descriptors, suggestedTitle = "", onStep =
       ? await buildSingle({ ...items[0], title: suggestedTitle || undefined }, onStep)
       : await buildMany(items, suggestedTitle || null, onStep);
 
-  return {
-    title: built.title,
-    kind: built.kind,
-    note: built.note,
-    sourceUrl: null,
+  return makeBuiltPageResult(built, {
     name: items.length === 1 ? items[0].name : `${items.length} files`,
     isFile: true,
     size: items.reduce((n, i) => n + i.blob.size, 0),
-    files: built.files,
-    skipped: { outside: 0, missing: 0, tooBig: 0, overLimit: 0 },
-    snapshot: false,
-    bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
-  };
+  });
 }
 
 /**
@@ -415,19 +375,7 @@ export async function readSharedText(text, suggestedTitle = "", onStep = () => {
   const name = `${titleFromName(title) || "note"}.md`;
   const blob = new Blob([String(text || "")], { type: "text/markdown;charset=utf-8" });
   const built = await buildSingle({ name, type: "text/markdown", blob, title }, onStep);
-  return {
-    title: built.title,
-    kind: built.kind,
-    note: built.note,
-    sourceUrl: null,
-    name,
-    isFile: true,
-    size: blob.size,
-    files: built.files,
-    skipped: { outside: 0, missing: 0, tooBig: 0, overLimit: 0 },
-    snapshot: false,
-    bytes: built.files.reduce((n, f) => n + f.blob.size, 0),
-  };
+  return makeBuiltPageResult(built, { name, isFile: true, size: blob.size });
 }
 
 const TRANSLIT = {
@@ -509,6 +457,36 @@ async function stageFiles(begin, files, onProgress) {
   return out;
 }
 
+async function prepareDeployFiles(mcp, fileList, { uuid = null, title, visibility = null, onProgress = null }) {
+  const total = fileList.reduce((n, f) => n + f.blob.size, 0);
+  if (total <= INLINE_BYTES) {
+    return { files: await Promise.all(fileList.map(inlineFile)), dropped: [] };
+  }
+  const stageArgs = uuid ? { space: uuid, title } : { title };
+  if (visibility) stageArgs.visibility = visibility;
+  const begin = await mcp.call("stage_begin", stageArgs);
+  const fit = fitToPlan(fileList, begin && begin.limits, begin && begin.plan);
+  if (onProgress) {
+    onProgress({ step: "uploading", title, done: 0, of: fit.keep.length, dropped: fit.dropped });
+  }
+  const files = await stageFiles(begin, fit.keep, (p) => {
+    if (onProgress) onProgress({ ...p, title, dropped: fit.dropped });
+  });
+  return { files, dropped: fit.dropped };
+}
+
+function recordPublishedSpace(page, spaceId, url, remember) {
+  if (remember && page.sourceUrl) {
+    rememberMoved(page.sourceUrl, {
+      uuid: spaceId,
+      url,
+      title: page.title,
+      at: Date.now(),
+    }).catch(() => {});
+  }
+  learnAccount(url).catch(() => {});
+}
+
 /**
  * Publish a prepared page/file set to spacesheep.dev via MCP.
  */
@@ -541,37 +519,24 @@ export async function publishPage(
     } catch {}
   }
 
-  const all = page.files;
-  const total = all.reduce((n, f) => n + f.blob.size, 0);
-  const initialFilesCount = all.length;
-  const initialBytes = total;
-  let files;
-  let dropped = [];
-  if (total <= INLINE_BYTES) {
-    files = await Promise.all(all.map(inlineFile));
-  } else {
-    const stageArgs = uuid ? { space: uuid, title: page.title } : { title: page.title };
-    if (visibility) stageArgs.visibility = visibility;
-    const begin = await mcp.call("stage_begin", stageArgs);
-    const fit = fitToPlan(all, begin && begin.limits, begin && begin.plan);
-    dropped = fit.dropped;
-    onProgress({ step: "uploading", title: page.title, done: 0, of: fit.keep.length, dropped });
-    files = await stageFiles(begin, fit.keep, (p) => onProgress({ ...p, title: page.title, dropped }));
-  }
+  const initialFilesCount = page.files.length;
+  const initialBytes = page.files.reduce((n, f) => n + f.blob.size, 0);
+  const { files, dropped } = await prepareDeployFiles(mcp, page.files, {
+    uuid,
+    title: page.title,
+    visibility,
+    onProgress,
+  });
 
   onProgress({ step: "publishing", title: page.title });
+  const versionName = `${uuid ? "Updated" : "Moved"} from SheepIt`;
   const args = {
     files,
-    version_name: `${uuid ? "Updated" : "Moved"} from SheepIt`,
+    version_name: versionName,
+    title: page.title,
+    ...(uuid ? { uuid } : { emoji: KIND_ICON[page.kind] || "📄" }),
+    ...(visibility ? { access: { visibility } } : {}),
   };
-  if (uuid) {
-    Object.assign(args, { uuid, title: page.title });
-  } else {
-    Object.assign(args, { title: page.title, emoji: EMOJI[page.kind] || "📄" });
-  }
-  if (visibility) {
-    args.access = { visibility };
-  }
 
   const priorMoved = page.sourceUrl ? await getMovedForUrl(page.sourceUrl) : null;
   const acct = await getAccount();
@@ -614,15 +579,7 @@ export async function publishPage(
   }
 
   if (immediateResult) {
-    if (remember && page.sourceUrl) {
-      rememberMoved(page.sourceUrl, {
-        uuid: immediateSpaceId,
-        url: immediateUrl,
-        title: page.title,
-        at: Date.now(),
-      }).catch(() => {});
-    }
-    learnAccount(immediateUrl).catch(() => {});
+    recordPublishedSpace(page, immediateSpaceId, immediateUrl, remember);
   }
 
   let backgroundSync = null;
@@ -638,15 +595,7 @@ export async function publishPage(
           throw new Error("spacesheep answered without a link — check your dashboard before trying again");
         }
         if (!immediateResult) {
-          if (remember && page.sourceUrl) {
-            rememberMoved(page.sourceUrl, {
-              uuid: spaceId,
-              url: result.url,
-              title: page.title,
-              at: Date.now(),
-            }).catch(() => {});
-          }
-          learnAccount(result.url).catch(() => {});
+          recordPublishedSpace(page, spaceId, result.url, remember);
           if (onPhase1Confirmed) {
             onPhase1Confirmed({
               uuid: spaceId,
@@ -658,7 +607,7 @@ export async function publishPage(
         }
 
         let finalFilesCount = initialFilesCount;
-        let finalSkipped = page.skipped || { outside: 0, missing: 0, tooBig: 0, overLimit: 0 };
+        let finalSkipped = page.skipped || { ...EMPTY_SKIPPED };
         let finalBytes = initialBytes;
         let fullCaptureMs = 0;
         let deployFullMs = 0;
@@ -678,19 +627,14 @@ export async function publishPage(
           }
           if (fullCaptured.files.length > initialFilesCount) {
             const tDep2 = Date.now();
-            const fullTotal = fullCaptured.files.reduce((n, f) => n + f.blob.size, 0);
-            let fullDeployFiles;
-            if (fullTotal <= INLINE_BYTES) {
-              fullDeployFiles = await Promise.all(fullCaptured.files.map(inlineFile));
-            } else {
-              const begin = await mcp.call("stage_begin", { space: spaceId, title: page.title });
-              const fit = fitToPlan(fullCaptured.files, begin && begin.limits, begin && begin.plan);
-              fullDeployFiles = await stageFiles(begin, fit.keep, () => {});
-            }
+            const { files: fullDeployFiles } = await prepareDeployFiles(mcp, fullCaptured.files, {
+              uuid: spaceId,
+              title: page.title,
+            });
             await mcp.call("deploy", {
               uuid: spaceId,
               files: fullDeployFiles,
-              version_name: `${uuid ? "Updated" : "Moved"} from SheepIt`,
+              version_name: versionName,
               background: true,
             });
             deployFullMs = Date.now() - tDep2;

@@ -41,7 +41,7 @@ function sniffExtension(bytes) {
   return null;
 }
 
-function decode(bytes, type) {
+export function decode(bytes, type) {
   const charset = /charset\s*=\s*["']?([^\s;"']+)/i.exec(type || "")?.[1] || "utf-8";
   try { return new TextDecoder(charset).decode(bytes); } catch { return new TextDecoder().decode(bytes); }
 }
@@ -59,36 +59,6 @@ function serialize(doc, svg = false) {
   if (svg) return new XMLSerializer().serializeToString(doc);
   const doctype = doc.doctype ? new XMLSerializer().serializeToString(doc.doctype) : "<!DOCTYPE html>";
   return neutralizeCapturedHtml(`${doctype}\n${doc.documentElement.outerHTML}`);
-}
-
-/** Fetch outside the page's CORS restrictions using the extension's host access. */
-export async function fetchAsset(url, maxBytes) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
-  try {
-    const response = await fetch(url, { credentials: "include", signal: controller.signal });
-    if (!response.ok) return { url, error: `HTTP ${response.status}` };
-    if (Number(response.headers.get("content-length")) > maxBytes) {
-      await response.body?.cancel();
-      return { url, error: "too_big" };
-    }
-    const reader = response.body.getReader();
-    const chunks = [];
-    let size = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > maxBytes) { await reader.cancel(); return { url, error: "too_big" }; }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-    return { url, finalUrl: response.url, bytes, type: response.headers.get("content-type") || "" };
-  } catch (error) {
-    return { url, error: String(error.message || error) };
-  } finally { clearTimeout(timeout); }
 }
 
 /** read(urls) returns bytes plus MIME type and final URL after redirects. */

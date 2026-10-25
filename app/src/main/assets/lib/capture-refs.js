@@ -23,10 +23,8 @@ export function urlKey(url) {
 
 // A srcset URL may contain commas (especially data: images). Descriptors end at
 // the next comma, whereas commas within a URL are part of that URL.
-export function rewriteSrcset(value, rewrite) {
-  let result = "", at = 0;
-  const kept = [];
-  let sawOmitted = false;
+function scanSrcset(value, onToken) {
+  let at = 0;
   while (at < value.length) {
     const start = at;
     while (at < value.length && /[\s,]/.test(value[at])) at++;
@@ -36,7 +34,7 @@ export function rewriteSrcset(value, rewrite) {
     const token = value.slice(urlStart, at);
     if (!token) break;
     const commas = token.match(/,+$/)?.[0] || "";
-    const rewritten = rewrite(commas ? token.slice(0, -commas.length) : token);
+    const url = commas ? token.slice(0, -commas.length) : token;
     let desc = "";
     if (!commas) {
       const descriptorStart = at;
@@ -49,13 +47,20 @@ export function rewriteSrcset(value, rewrite) {
       }
       desc = value.slice(descriptorStart, at);
     }
-    if (rewritten === "data:,") {
-      sawOmitted = true;
-    } else {
-      kept.push(rewritten + (commas ? "" : desc.replace(/,\s*$/, "")));
-    }
-    result += sep + rewritten + commas + desc;
+    onToken(sep, url, commas, desc);
   }
+}
+
+export function rewriteSrcset(value, rewrite) {
+  let result = "";
+  const kept = [];
+  let sawOmitted = false;
+  scanSrcset(value, (sep, url, commas, desc) => {
+    const rewritten = rewrite(url);
+    if (rewritten === "data:,") sawOmitted = true;
+    else kept.push(rewritten + (commas ? "" : desc.replace(/,\s*$/, "")));
+    result += sep + rewritten + commas + desc;
+  });
   return sawOmitted ? kept.join(", ") : result;
 }
 
@@ -250,40 +255,16 @@ export function rewriteDocument(doc, rewrite) {
 // doesn't queue 6-8 redundant resolution/format variants per image.
 export function bestSrcsetUrl(value) {
   if (!value || typeof value !== "string") return null;
-  let at = 0;
-  let bestUrl = null;
-  let bestScore = -1;
-  while (at < value.length) {
-    while (at < value.length && /[\s,]/.test(value[at])) at++;
-    const urlStart = at;
-    while (at < value.length && !/\s/.test(value[at])) at++;
-    const token = value.slice(urlStart, at);
-    if (!token) break;
-    const commas = token.match(/,+$/)?.[0] || "";
-    const url = (commas ? token.slice(0, -commas.length) : token).trim();
-    let desc = "";
-    if (!commas) {
-      const descriptorStart = at;
-      let depth = 0;
-      while (at < value.length) {
-        const c = value[at++];
-        if (c === "(") depth++;
-        if (c === ")") depth--;
-        if (c === "," && depth === 0) break;
-      }
-      desc = value.slice(descriptorStart, at).replace(/,\s*$/, "").trim();
-    }
-    if (!url || url === "data:," || url === "about:blank") continue;
-    let score = 1;
+  let bestUrl = null, bestScore = -1;
+  scanSrcset(value, (_sep, rawUrl, commas, rawDesc) => {
+    const url = rawUrl.trim();
+    if (!url || url === "data:," || url === "about:blank") return;
+    const desc = commas ? "" : rawDesc.replace(/,\s*$/, "").trim();
     const wMatch = /(\d+(?:\.\d+)?)w/i.exec(desc);
     const xMatch = /(\d+(?:\.\d+)?)x/i.exec(desc);
-    if (wMatch) score = parseFloat(wMatch[1]);
-    else if (xMatch) score = parseFloat(xMatch[1]) * 1000;
-    if (score >= bestScore) {
-      bestScore = score;
-      bestUrl = url;
-    }
-  }
+    const score = wMatch ? parseFloat(wMatch[1]) : xMatch ? parseFloat(xMatch[1]) * 1000 : 1;
+    if (score >= bestScore) { bestScore = score; bestUrl = url; }
+  });
   return bestUrl;
 }
 
