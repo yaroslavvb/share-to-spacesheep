@@ -1,6 +1,6 @@
 # SheepIt — Apple App Store Submission Guide (`v0.6.3`, Build `10`)
 
-**Verified Fri 23 Oct 2026 (week 43), 17:04 PDT:** development and distribution signing are configured on the M5; `0.6.3` (10) was installed and launched on the iPad, archived, exported, and uploaded to App Store Connect. Test Information is saved, the build is assigned to **Public Testers**, and it is **Waiting for Review**. The public invitation is [testflight.apple.com/join/Tu1RPMVr](https://testflight.apple.com/join/Tu1RPMVr). Apple does not allow testers to join until this group has an approved build; the public page currently says it is not accepting new testers.
+**Verified Sat 24 Oct 2026 (week 43), 22:01 PDT:** Apple has **Approved** `0.6.3` (10) for external TestFlight testing in **Public Testers**. The [public invitation](https://testflight.apple.com/join/Tu1RPMVr) is open and shows **View in TestFlight**. Install TestFlight on an iPhone or iPad, open the link, then accept and install. Test signing in, sharing a webpage and a PDF, and opening the published links. The newer local capture fix committed after this upload is not in build 10; distributing it requires a new build number, archive and upload.
 
 The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was already taken. The installed app still displays **SheepIt**.
 
