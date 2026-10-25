@@ -18,7 +18,8 @@ export const LIMITS = {
   mainBytes: 500 * 1024 * 1024,
 };
 
-const INLINE_BYTES = 8 * 1024 * 1024;
+const INLINE_BYTES = 256 * 1024;
+const INLINE_FILES = 4;
 const MOVED_KEEP = 300;
 const EMPTY_SKIPPED = { outside: 0, missing: 0, tooBig: 0, overLimit: 0 };
 const stripSpacesheepSuffix = (s) => String(s || "").replace(/\s*[—-]\s*spacesheep$/i, "").trim();
@@ -218,12 +219,19 @@ export async function readSharedUrl(url, suggestedTitle = "", onStep = () => {},
       );
     }
   } else {
-    const rawType = (main.type || "").split(";")[0].trim().toLowerCase();
+    const isPdf =
+      main.bytes.length > 4 &&
+      main.bytes[0] === 0x25 &&
+      main.bytes[1] === 0x50 &&
+      main.bytes[2] === 0x44 &&
+      main.bytes[3] === 0x46;
+    const rawType = isPdf ? "application/pdf" : (main.type || "").split(";")[0].trim().toLowerCase();
     const kind = kindOf(rawType, fileName(finalUrl));
 
     if (kind !== "page") {
       onStep("file");
-      const name = fileName(finalUrl) || new URL(finalUrl).hostname;
+      let name = fileName(finalUrl) || new URL(finalUrl).hostname;
+      if (kind === "pdf" && !/\.pdf$/i.test(name)) name += ".pdf";
       const blob = new Blob([main.bytes], { type: rawType || "application/octet-stream" });
       const built = await buildSingle({ name, type: rawType, blob, title: suggestedTitle || undefined }, onStep);
       return makeBuiltPageResult(built, { sourceUrl: finalUrl, name, isFile: false, size: blob.size });
@@ -339,8 +347,11 @@ export async function readSharedFiles(descriptors, suggestedTitle = "", onStep =
     const r = await fetch(`https://appassets.spacesheep.invalid/__shared_file?id=${encodeURIComponent(d.id)}`);
     if (!r.ok) throw new ReadError("no_access", `Couldn't read ${d.name || "file"}`);
     const buf = await r.arrayBuffer();
-    const type = d.type || r.headers.get("content-type") || "application/octet-stream";
-    const name = d.name || "file";
+    const b = new Uint8Array(buf);
+    const isPdf = b.length > 4 && b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46;
+    const type = isPdf ? "application/pdf" : d.type || r.headers.get("content-type") || "application/octet-stream";
+    let name = d.name || "file";
+    if (type === "application/pdf" && !/\.pdf$/i.test(name)) name += ".pdf";
     items.push({
       path: d.path || name,
       name,
@@ -376,35 +387,6 @@ export async function readSharedText(text, suggestedTitle = "", onStep = () => {
   const blob = new Blob([String(text || "")], { type: "text/markdown;charset=utf-8" });
   const built = await buildSingle({ name, type: "text/markdown", blob, title }, onStep);
   return makeBuiltPageResult(built, { name, isFile: true, size: blob.size });
-}
-
-const TRANSLIT = {
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i",
-  й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
-  у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y",
-  ь: "", э: "e", ю: "yu", я: "ya",
-  і: "i", ї: "yi", є: "ye", ґ: "g", ў: "w", ђ: "dj", ј: "j", љ: "lj", њ: "nj",
-  ћ: "c", џ: "dz", ѓ: "g", ѕ: "dz", ќ: "k",
-  α: "a", β: "v", γ: "g", δ: "d", ε: "e", ζ: "z", η: "i", θ: "th", ι: "i", κ: "k",
-  λ: "l", μ: "m", ν: "n", ξ: "x", ο: "o", π: "p", ρ: "r", σ: "s", ς: "s", τ: "t",
-  υ: "y", φ: "f", χ: "ch", ψ: "ps", ω: "o",
-  ά: "a", έ: "e", ή: "i", ί: "i", ό: "o", ύ: "y", ώ: "o", ϊ: "i", ϋ: "y", ΐ: "i", ΰ: "y",
-  ß: "ss", æ: "ae", œ: "oe", ø: "o", ð: "d", þ: "th", ł: "l", đ: "d",
-};
-
-export function slugifyTitle(title) {
-  let out = "";
-  for (const ch of String(title || "").toLowerCase()) {
-    out += ch in TRANSLIT ? TRANSLIT[ch] : ch;
-  }
-  const slug = out
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/, "");
-  return slug || "untitled";
 }
 
 async function inlineFile(f) {
@@ -459,18 +441,16 @@ async function stageFiles(begin, files, onProgress) {
 
 async function prepareDeployFiles(mcp, fileList, { uuid = null, title, visibility = null, onProgress = null }) {
   const total = fileList.reduce((n, f) => n + f.blob.size, 0);
-  if (total <= INLINE_BYTES) {
+  if (total <= INLINE_BYTES && fileList.length <= INLINE_FILES) {
     return { files: await Promise.all(fileList.map(inlineFile)), dropped: [] };
   }
   const stageArgs = uuid ? { space: uuid, title } : { title };
   if (visibility) stageArgs.visibility = visibility;
   const begin = await mcp.call("stage_begin", stageArgs);
   const fit = fitToPlan(fileList, begin && begin.limits, begin && begin.plan);
-  if (onProgress) {
-    onProgress({ step: "uploading", title, done: 0, of: fit.keep.length, dropped: fit.dropped });
-  }
+  onProgress?.({ step: "uploading", title, done: 0, of: fit.keep.length, dropped: fit.dropped });
   const files = await stageFiles(begin, fit.keep, (p) => {
-    if (onProgress) onProgress({ ...p, title, dropped: fit.dropped });
+    onProgress?.({ ...p, title, dropped: fit.dropped });
   });
   return { files, dropped: fit.dropped };
 }
@@ -497,9 +477,7 @@ export async function publishPage(
     visibility = null,
     remember = true,
     onProgress = () => {},
-    onPhase1Confirmed = null,
     onBackgroundComplete = null,
-    onBackgroundError = null,
   } = {}
 ) {
   onProgress({ step: "publishing", title: page.title, done: 0, of: page.files.length });
@@ -518,6 +496,9 @@ export async function publishPage(
       }
     } catch {}
   }
+
+  const fullCapturePromise = page.runFullCapture ? page.runFullCapture() : null;
+  fullCapturePromise?.catch(() => {});
 
   const initialFilesCount = page.files.length;
   const initialBytes = page.files.reduce((n, f) => n + f.blob.size, 0);
@@ -539,143 +520,73 @@ export async function publishPage(
   };
 
   const priorMoved = page.sourceUrl ? await getMovedForUrl(page.sourceUrl) : null;
-  const acct = await getAccount();
-  const handle =
-    (acct && acct.handle) ||
-    (priorMoved && priorMoved.url && (priorMoved.url.match(/\/@([a-z0-9][a-z0-9_-]*)\//i) || [])[1]) ||
-    null;
-  const optimisticUrl =
-    (uuid && priorMoved && priorMoved.uuid === uuid && priorMoved.url)
-      ? priorMoved.url
-      : handle
-      ? `https://spacesheep.dev/@${handle}/${slugifyTitle(page.title)}`
-      : null;
-
   const tDep0 = Date.now();
-  const phase1Promise = mcp.call("deploy", args);
-
-  let fastResult = null;
-  if (optimisticUrl) {
-    fastResult = await Promise.race([
-      phase1Promise.then((r) => ({ ok: true, result: r })).catch((err) => ({ ok: false, err })),
-      new Promise((r) => setTimeout(() => r(null), 250)),
-    ]);
-    if (fastResult && !fastResult.ok) {
-      throw fastResult.err;
-    }
-  } else {
-    fastResult = { ok: true, result: await phase1Promise };
-  }
-
+  const result = await mcp.call("deploy", args);
   const deployFastMs = Date.now() - tDep0;
-  const immediateResult = fastResult ? fastResult.result : null;
-  const immediateSpaceId = immediateResult
-    ? immediateResult.uuid || immediateResult.id || immediateResult.space_id
-    : uuid;
-  const immediateUrl = immediateResult ? immediateResult.url : optimisticUrl;
 
-  if (immediateResult && (!immediateSpaceId || !immediateUrl)) {
+  const spaceId = result && (result.uuid || result.id || result.space_id);
+  if (!spaceId || !result.url) {
     throw new Error("spacesheep answered without a link — check your dashboard before trying again");
   }
-
-  if (immediateResult) {
-    recordPublishedSpace(page, immediateSpaceId, immediateUrl, remember);
-  }
+  recordPublishedSpace(page, spaceId, result.url, remember);
 
   let backgroundSync = null;
-  if (!immediateResult || page.runFullCapture) {
-    const fullCapturePromise = page.runFullCapture ? page.runFullCapture() : null;
+  if (fullCapturePromise) {
     backgroundSync = (async () => {
       try {
         const tBg0 = Date.now();
-        const result = immediateResult || (await phase1Promise);
-        const phase1TotalMs = Date.now() - tDep0;
-        const spaceId = result && (result.uuid || result.id || result.space_id);
-        if (!spaceId || !result.url) {
-          throw new Error("spacesheep answered without a link — check your dashboard before trying again");
+        const fullCaptured = await fullCapturePromise;
+        const fullCaptureMs = Date.now() - tBg0;
+        page.files = fullCaptured.files;
+        page.skipped = fullCaptured.skipped;
+        page.bytes = fullCaptured.bytes;
+        if (page.capture) {
+          page.capture.omitted = fullCaptured.skipped.overLimit;
+          page.capture.copied = Math.max(0, fullCaptured.files.length - 1);
         }
-        if (!immediateResult) {
-          recordPublishedSpace(page, spaceId, result.url, remember);
-          if (onPhase1Confirmed) {
-            onPhase1Confirmed({
-              uuid: spaceId,
-              url: result.url,
-              visibility: result.visibility || visibility || null,
-              unchanged: !!result.unchanged,
-            });
-          }
-        }
-
-        let finalFilesCount = initialFilesCount;
-        let finalSkipped = page.skipped || { ...EMPTY_SKIPPED };
-        let finalBytes = initialBytes;
-        let fullCaptureMs = 0;
         let deployFullMs = 0;
-
-        if (fullCapturePromise) {
-          const fullCaptured = await fullCapturePromise;
-          fullCaptureMs = Date.now() - tBg0;
-          page.files = fullCaptured.files;
-          page.skipped = fullCaptured.skipped;
-          page.bytes = fullCaptured.bytes;
-          finalFilesCount = fullCaptured.files.length;
-          finalSkipped = fullCaptured.skipped;
-          finalBytes = fullCaptured.bytes;
-          if (page.capture) {
-            page.capture.omitted = fullCaptured.skipped.overLimit;
-            page.capture.copied = Math.max(0, fullCaptured.files.length - 1);
-          }
-          if (fullCaptured.files.length > initialFilesCount) {
-            const tDep2 = Date.now();
-            const { files: fullDeployFiles } = await prepareDeployFiles(mcp, fullCaptured.files, {
-              uuid: spaceId,
-              title: page.title,
-            });
-            await mcp.call("deploy", {
-              uuid: spaceId,
-              files: fullDeployFiles,
-              version_name: versionName,
-              background: true,
-            });
-            deployFullMs = Date.now() - tDep2;
-          }
-        }
-
-        if (onBackgroundComplete) {
-          onBackgroundComplete({
+        if (fullCaptured.files.length > initialFilesCount) {
+          const tDep2 = Date.now();
+          const { files: fullDeployFiles } = await prepareDeployFiles(mcp, fullCaptured.files, {
             uuid: spaceId,
-            url: result.url,
             title: page.title,
-            visibility: result.visibility || visibility || null,
-            update: !!uuid,
-            filesCount: finalFilesCount,
-            assetsCopied: Math.max(0, finalFilesCount - 1),
-            skipped: finalSkipped,
-            bytes: finalBytes,
-            timings: { ...(page.timings || {}), deployFastMs, phase1TotalMs, fullCaptureMs, deployFullMs },
           });
+          await mcp.call("deploy", {
+            uuid: spaceId,
+            files: fullDeployFiles,
+            version_name: versionName,
+            background: true,
+          });
+          deployFullMs = Date.now() - tDep2;
         }
-      } catch (err) {
-        if (!immediateResult && onBackgroundError) {
-          onBackgroundError(err);
-        }
-      }
+        onBackgroundComplete?.({
+          uuid: spaceId,
+          url: result.url,
+          title: page.title,
+          visibility: result.visibility || visibility || null,
+          update: !!uuid,
+          filesCount: fullCaptured.files.length,
+          assetsCopied: Math.max(0, fullCaptured.files.length - 1),
+          skipped: fullCaptured.skipped,
+          bytes: fullCaptured.bytes,
+          timings: { ...(page.timings || {}), deployFastMs, fullCaptureMs, deployFullMs },
+        });
+      } catch {}
     })();
   }
 
   return {
-    uuid: immediateSpaceId || null,
-    url: immediateUrl,
+    uuid: spaceId,
+    url: result.url,
     title: page.title,
     update: !!uuid,
-    visibility: (immediateResult && immediateResult.visibility) || visibility || (priorMoved ? "public" : null),
-    unchanged: !!(immediateResult && immediateResult.unchanged),
+    visibility: result.visibility || visibility || (priorMoved ? "public" : null),
+    unchanged: !!result.unchanged,
     dropped,
     capture: page.capture || null,
     filesCount: initialFilesCount,
     bytes: initialBytes,
     timings: { ...(page.timings || {}), deployFastMs },
-    phase1Promise,
     backgroundSync,
   };
 }

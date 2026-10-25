@@ -353,7 +353,7 @@ async function renderDone(job) {
   });
 
   const visBar = view.querySelector("#vis-bar");
-  if (visBar && (job.uuid || job.phase1Promise)) {
+  if (visBar && job.uuid) {
     const pills = [...visBar.querySelectorAll(".vis-pill")];
     const syncPills = (activeVis) => {
       for (const pill of pills) {
@@ -367,10 +367,6 @@ async function renderDone(job) {
         if (!targetVis || pill.classList.contains("active")) return;
         for (const p of pills) p.disabled = true;
         try {
-          if (!job.uuid && job.phase1Promise) {
-            const r = await job.phase1Promise;
-            job.uuid = r && (r.uuid || r.id || r.space_id);
-          }
           await updateSpaceVisibility(job.uuid, targetVis);
           job.visibility = targetVis;
           syncPills(targetVis);
@@ -446,37 +442,12 @@ function readingWords(step, a, b, c) {
 
 async function startPublish(page, uuid = null, visibility = null) {
   currentPage = page;
-  let currentOutcome = null;
-  const handlePublishError = async (e) => {
-    const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
-    await renderFoot().catch(() => {});
-    renderProblem(e && e.code, String((e && e.message) || e), {
-      retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
-    });
-  };
   try {
     renderWorking({ step: "publishing", title: page.title });
     const outcome = await publishPage(page, {
       uuid,
       visibility,
       onProgress: (prog) => renderWorking(prog),
-      onPhase1Confirmed: (info) => {
-        if (currentOutcome) {
-          currentOutcome.uuid = info.uuid;
-          if (info.visibility) {
-            currentOutcome.visibility = info.visibility;
-          }
-          if (info.url && info.url !== currentOutcome.url) {
-            currentOutcome.url = info.url;
-            const urlEl = view.querySelector("#result-url");
-            if (urlEl) {
-              urlEl.textContent = info.url;
-              urlEl.href = info.url;
-            }
-            copyText(info.url).catch(() => {});
-          }
-        }
-      },
       onBackgroundComplete: (doneInfo) => {
         reportNativeStatus({
           step: "done",
@@ -484,12 +455,14 @@ async function startPublish(page, uuid = null, visibility = null) {
           ...doneInfo,
         });
       },
-      onBackgroundError: handlePublishError,
     });
-    currentOutcome = outcome;
     await renderDone(outcome);
   } catch (e) {
-    await handlePublishError(e);
+    const isAuthErr = e && (e.code === "signed_out" || e.code === "revoked");
+    await renderFoot().catch(() => {});
+    renderProblem(e && e.code, String((e && e.message) || e), {
+      retry: () => (isAuthErr ? handleInteractiveSignIn() : startPublish(page, uuid, visibility)),
+    });
   }
 }
 
