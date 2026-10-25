@@ -20,6 +20,7 @@ const shell = `<html><head><title>News</title><link rel="stylesheet" href="/site
 
 try {
   assert(needsLiveDomRender(parse(shell)), "SSR text with an empty picture requests a rendered DOM");
+  assert(needsLiveDomRender(parse(shell.replace(picture, '<section style="display:none"><picture></picture></section>'))), "A raw inline-hidden SSR picture still requests live hydration");
   assert(!needsLiveDomRender(parse(shell.replace(picture, `<picture>${image}</picture>`))), "An already populated article keeps the static capture path");
   assert(!needsLiveDomRender(parse(shell.replace(picture, ""))), "A static text article keeps the static capture path");
   assert(needsLiveDomRender(parse('<body><div id="root"></div></body>')), "An empty application shell still requests a rendered DOM");
@@ -70,6 +71,9 @@ try {
   const mobileFrame = await fixtureFrame(responsive, 320);
   const plainSnapshot = JSON.parse(mobileFrame.contentWindow.eval(serialize));
   assert(!parse(plainSnapshot.html).querySelector(".mobile").style.display, "Snapshots without lazy-picture scrolling keep their original responsive display rules");
+  const hiddenPicture = parse(plainSnapshot.html).querySelector(".desktop picture");
+  assert(hiddenPicture.hasAttribute("data-sheepit-hidden-picture") && hiddenPicture.style.display === "none", "Serialization proves a stylesheet-hidden empty picture without lazy scrolling");
+  assert(!needsLiveDomRender(parse(plainSnapshot.html)), "A proven hidden picture does not request hydration after serialization without scrolling");
   mobileFrame.contentWindow.__sheepitSnapshotScroll = { x: 0, y: 0 };
   const responsiveSnapshot = JSON.parse(mobileFrame.contentWindow.eval(serialize));
   const copyFrame = await fixtureFrame(responsiveSnapshot.html, 1024);
@@ -121,7 +125,9 @@ try {
   assert(renderTimeout === 12000, "Picture hydration receives the longer mobile rendering budget");
   assert(full.files.some((file) => file.path.endsWith(".jpg")), "The hydrated article's image bytes are preserved");
   assert(/<img[^>]+src="\.\/_assets\//.test(html), "The saved article points to its preserved image");
-  renderedHtml = shell.replace(picture, `<picture>${image}</picture><section style="display:none!important"><picture></picture></section>`);
+  const hiddenBranchDocument = parse(plainSnapshot.html);
+  hiddenBranchDocument.querySelector(".mobile img").setAttribute("src", "https://news.example/photo.jpg");
+  renderedHtml = hiddenBranchDocument.documentElement.outerHTML;
   const hiddenBranchCapture = await readSharedUrl("https://news.example/");
   const hiddenBranchFull = hiddenBranchCapture.runFullCapture ? await hiddenBranchCapture.runFullCapture() : hiddenBranchCapture;
   assert(hiddenBranchFull.files.some((file) => file.path.endsWith(".jpg")), "A hidden responsive placeholder does not reject a captured visible image");

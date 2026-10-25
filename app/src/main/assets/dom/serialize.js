@@ -13,6 +13,20 @@
     var d = document.doctype;
     var dt = d ? "<!DOCTYPE " + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : "") + (d.systemId ? ' "' + d.systemId + '"' : "") + ">" : "<!DOCTYPE html>";
     var root = document.documentElement.cloneNode(true);
+    // Record computed hidden state even when no scrolling was needed. Raw SSR
+    // inline styles alone cannot prove that an empty picture is intentionally hidden.
+    var originalPictures = document.querySelectorAll("picture");
+    var clonedPictures = root.querySelectorAll("picture");
+    for (var hp = 0; hp < originalPictures.length; hp++) {
+      if (originalPictures[hp].querySelector("img, source")) continue;
+      for (var parent = originalPictures[hp]; parent; parent = parent.parentElement) {
+        if (getComputedStyle(parent).display === "none") {
+          clonedPictures[hp].setAttribute("data-sheepit-hidden-picture", "");
+          clonedPictures[hp].style.setProperty("display", "none", "important");
+          break;
+        }
+      }
+    }
     if (window.__sheepitSnapshotScroll && document.body) {
       // Responsive SSR may leave alternate layouts as skeletons. Since the
       // saved copy has no scripts to hydrate another layout, keep the selected

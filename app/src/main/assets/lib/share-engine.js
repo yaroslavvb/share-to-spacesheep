@@ -130,14 +130,9 @@ function cleanSpacesheepArtifacts(doc) {
 
 function hasUnhydratedPictures(doc) {
   for (const picture of doc.querySelectorAll("picture")) {
-    if (picture.querySelector("img, source")) continue;
-    // Serialized live snapshots pin hidden responsive branches with inline
-    // display:none. Those placeholders do not belong to the captured layout.
-    let hidden = false;
-    for (let el = picture; el; el = el.parentElement) {
-      if (el.style?.display === "none") { hidden = true; break; }
-    }
-    if (!hidden) return true;
+    // Only the live serializer can prove that this placeholder was hidden.
+    if (picture.hasAttribute("data-sheepit-hidden-picture") || picture.querySelector("img, source")) continue;
+    return true;
   }
   return false;
 }
