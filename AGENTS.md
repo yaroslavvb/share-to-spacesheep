@@ -38,8 +38,7 @@ heading at the top of the Log), newest entry first:
 
     - **Fri 23 Oct, 09:16 · Release · ChatGPT** **[What was added](link)** (public): one concise sentence.
 
-        <details markdown="1">
-        <summary>Details</summary>
+        <details markdown="1"><summary>Details</summary>
 
         What changed, how it was checked, and any next step.
 
@@ -74,6 +73,10 @@ in the entry header: **ChatGPT**, **Gemini**, or **Claude**. Do not infer an old
 money or the spacesheep team's private code on them; link a private page only with its reason beside the link.
 
 ## Changelog
+
+- **2026-10-24 (Sat, week 43)** — Keep the expandable summary on the opening details line in the log example.
+  *Why:* constraint — md2report's indented-fold parser only reads a custom summary on that line; re-check:
+  render the example with md2report and confirm the expander says Details without a second summary inside.
 
 - **2026-10-24 (Sat, week 43)** — Require concise one-line log summaries, expandable details, and the actual
   agent label (ChatGPT, Gemini, or Claude) on both SheepIt pages; updated the entry example. *Why:* preference —
