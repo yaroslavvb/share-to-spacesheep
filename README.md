@@ -1,11 +1,11 @@
 # SheepIt (Share App for Android, iPhone/iPad & macOS)
 
-**SheepIt** (`com.yaroslavvb.sheepit`, by [@yaroslavvb](https://github.com/yaroslavvb)) uploads whatever you're looking at—any webpage in Chrome or Safari (with its stylesheets, images, KaTeX/MathJax math, Shadow DOM components, WebGL canvases, and streaming media) or any file on your device (images, PDFs, videos, audio, Markdown, CSV, JSON)—straight to your [Spacesheep](https://spacesheep.dev) in ~1 second.
+**SheepIt** (`com.yaroslavvb.sheepit`, by [@yaroslavvb](https://github.com/yaroslavvb)) uploads whatever you're looking at—any webpage in Chrome or Safari (with its stylesheets, images, KaTeX/MathJax math, Shadow DOM components, WebGL canvases, and streaming media) or any file on your device (images, PDFs, videos, audio, Markdown, CSV, JSON)—straight to your [Spacesheep](https://spacesheep.dev). Pages with client-rendered or lazy-loaded photos take a few extra seconds to capture.
 
 - **Install & Status Guide (with demo video):** [`https://spacesheep.dev/@yaroslavvb/sheepit-app`](https://spacesheep.dev/@yaroslavvb/sheepit-app)
 - **SheepIt Hub (Weekly Log, Pages & Builds):** [`https://spacesheep.dev/@yaroslavvb/sheepit-hub`](https://spacesheep.dev/@yaroslavvb/sheepit-hub)
 - **SheepIt Quality Control (23-Site Audit):** [`https://spacesheep.dev/@yaroslavvb/sheepit-quality-control`](https://spacesheep.dev/@yaroslavvb/sheepit-quality-control)
-- **Android app & Google Play bundle (`com.yaroslavvb.sheepit`):** `sheepit-v0.6.3.apk` / `sheepit-v0.6.3.aab` (version `0.6.3`, build `20`, API 37)
+- **Android app & Google Play bundle (`com.yaroslavvb.sheepit`):** `sheepit-v0.6.3.apk` / `sheepit-v0.6.3.aab` (version `0.6.3`, build `34`, API 37)
 - **iPhone & iPad app + Share Extension (`com.yaroslavvb.sheepit`):** `ios/ShareToSpacesheep.xcodeproj` (`sheepit-v0.6.3.ipa` / `sheepit-ios-simulator-v0.6.3.zip`)
 - **macOS Quick Action & Node CLI:** `bin/share-to-spacesheep.mjs` (`sheepit`)
 
@@ -33,9 +33,13 @@
 
 ### iPhone & iPad (iOS / iPadOS 16+)
 The iPhone/iPad app ([`ios/ShareToSpacesheep.xcodeproj`](ios/ShareToSpacesheep.xcodeproj)) includes both the standalone **SheepIt** app (`com.yaroslavvb.sheepit`) and a native **iOS/iPadOS Share Extension** (`com.yaroslavvb.sheepit.ShareExtension`) that shares credentials via App Group `group.com.yaroslavvb.sheepit` and appears as **SheepIt** directly in the Safari, Chrome, and Files share sheet.
-1. **Install Directly from Xcode:** Open `ios/ShareToSpacesheep.xcodeproj` in Xcode, select your Apple team under **Signing & Capabilities** for both targets, pick your connected iPhone or iPad, and press **Run (⌘R)**.
-2. **Or Install via Sideloadly / AltStore / SideStore:** Download [`sheepit-v0.6.3.ipa`](https://github.com/yaroslavvb/share-to-spacesheep/releases/download/v0.6.3/sheepit-v0.6.3.ipa) from [**GitHub Releases**](https://github.com/yaroslavvb/share-to-spacesheep/releases/latest) and install it onto your iPhone or iPad.
-3. **Share from Safari or Chrome on iPhone/iPad:** Open any page in Safari or Chrome, tap the **Share** button, and tap **SheepIt** in the share sheet.
+1. **Install with TestFlight:** Open [the public beta invitation](https://testflight.apple.com/join/Tu1RPMVr), then install **SheepIt for Spacesheep** in Apple's TestFlight app. The [installation and status guide](https://spacesheep.dev/@yaroslavvb/sheepit-app) lists the latest available build.
+2. **Sign in once, then share:** Open SheepIt and sign in. In Safari, Chrome or Files, tap **Share → SheepIt**. Keep the share sheet open until image copying finishes.
+3. **Developer install:** Open `ios/ShareToSpacesheep.xcodeproj` in Xcode, select your Apple team under **Signing & Capabilities** for both targets, choose your connected device, and press **Run (⌘R)**. The downloadable IPA requires compatible signing; third-party sideloading is unverified.
+
+### Capture regression checks
+
+Serve the repository with `python3 -m http.server 8769`, then open `http://localhost:8769/tests/capture-hydration.html`. The fixture checks image hydration, lazy loading, saved image bytes, responsive layouts, and failure handling in a real browser.
 
 ---
 

@@ -1,8 +1,10 @@
-# SheepIt — Apple App Store Submission Guide (`v0.6.3`, Build `11`)
+# SheepIt — Apple App Store Submission Guide (`v0.6.3`, Build `13`)
 
-**Verified Sat 24 Oct 2026 (week 43), 22:09 PDT:** `0.6.3` (11) is **Approved** in **Public Testers**, with automatic tester notification enabled. It contains the capture fix from `f1906c648af612be36e063c034bd8095632593e0`; upload succeeded at 22:06 PDT. Open TestFlight, select **SheepIt for Spacesheep**, and tap **Update** or **Install**; confirm **0.6.3 (11)**. The [public invitation](https://testflight.apple.com/join/Tu1RPMVr) is unchanged. Retry a previously failing webpage, then share a PDF and open both saved links.
+**Verified Sun 25 Oct 2026 (week 43), 11:04 PDT:** `0.6.3` (13) is **Testing** in **Public Testers**, with automatic tester notification enabled. It fixes Meduza images, lazy picture loading and saved-page visibility across phone, iPad and desktop widths. Upload succeeded at 11:01 PDT. Open TestFlight, select **SheepIt for Spacesheep**, tap **Update**, and confirm **0.6.3 (13)**. The [public invitation](https://testflight.apple.com/join/Tu1RPMVr) is unchanged.
 
-Build 11 was archived from a clean `git archive f1906c6` snapshot with `CURRENT_PROJECT_VERSION=11`, `MARKETING_VERSION=0.6.3` and `DEVELOPMENT_TEAM=KHW377CMS5`. The only bundled web-asset changes from build 10 are `lib/capture-refs.js`, `lib/capture.js` and `lib/share-engine.js`; both app and extension match that revision. Archive/signature validation and a capture-neutralization smoke check passed. The later refactor and uncommitted working files are not included. Archive: `app-store/SheepIt-v0.6.3-b11.xcarchive`. Upload used `destination=upload` and `manageAppVersionAndBuildNumber=false` to retain build 11.
+Build 13 was archived from clean `6aa6fdba5fcd4112d77c0384a082357dd930f16a` source with `CURRENT_PROJECT_VERSION=13`, `MARKETING_VERSION=0.6.3` and `DEVELOPMENT_TEAM=KHW377CMS5`. Both app and share extension match the source for `lib/share-engine.js`, `dom/check-ready.js` and `dom/serialize.js`. Archive/signature validation passed; no default sign-in key is bundled. The capture regression fixture passed 29 checks in Chromium and WebKit, and the real iPhone capture preserved 36 pictures with no empty placeholders. The repaired Meduza page was checked at phone and desktop widths. The build also includes the previous PDF upload-completion fixes.
+
+Archive: `app-store/SheepIt-v0.6.3-b13.xcarchive`; provenance is recorded in its `source-provenance.json`. Upload used `destination=upload` and `manageAppVersionAndBuildNumber=false`. Intermediate build 12 uploaded at 10:54 PDT but was not added to Public Testers; build 13 supersedes it.
 
 The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was already taken. The installed app still displays **SheepIt**.
 
@@ -19,7 +21,7 @@ The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was
 | **App Group ID** | `group.com.yaroslavvb.sheepit` |
 | **SKU** | `sheepit-ios-001` |
 | **Version (`MARKETING_VERSION`)** | `0.6.3` |
-| **Latest uploaded build (`CFBundleVersion`)** | `11` (explicit archive override; the project file still defaults to `10`) |
+| **Latest uploaded build (`CFBundleVersion`)** | `13` (explicit archive override; the project file still defaults to `10`) |
 | **Primary Category** | `Productivity` (Secondary: `Utilities`) |
 | **Content Rights** | Does not contain, show, or access third-party content requiring rights |
 | **Age Rating** | `4+` (No objectionable content; Unrestricted Web Access = No, since it only captures user-shared pages) |
@@ -44,7 +46,7 @@ The App Store Connect name is **SheepIt for Spacesheep** because **SheepIt** was
 3. In the top toolbar destination picker, select **Any iOS Device (arm64)**.
 4. In the menu bar, click **Product → Archive**.
 5. When the **Organizer** window opens:
-   - Select the new archive (latest uploaded: `SheepIt 0.6.3 (11)`) and click **Distribute App**. Each new upload needs an unused, increasing build number.
+   - Select the new archive (latest uploaded: `SheepIt 0.6.3 (13)`) and click **Distribute App**. Each new upload needs an unused, increasing build number.
    - Choose **App Store Connect** → **Upload** → click **Next** / **Upload**.
 
 ### Option B: Command-Line Archive & Export (`ios/build-appstore.sh`)
@@ -53,7 +55,7 @@ If you know your 10-character Apple Developer Team ID (found at [developer.apple
 cd /Users/yaroslavvb/git/share-to-spacesheep
 DEVELOPMENT_TEAM=YOUR_TEAM_ID ./ios/build-appstore.sh
 ```
-This calculates `CFBundleVersion` from the git commit count, archives `SheepIt`, and exports a signed `.ipa` into `app-store/export/`. Check the number against App Store Connect before uploading: the current formula can reuse a number, particularly after an explicit override such as build 11. If needed, archive directly with `xcodebuild archive` and an unused `CURRENT_PROJECT_VERSION` override; use the same number for the app and extension.
+This calculates `CFBundleVersion` from the git commit count, archives `SheepIt`, and exports a signed `.ipa` into `app-store/export/`. Check the number against App Store Connect before uploading: the current formula can reuse a number, particularly after an explicit override such as build 13. If needed, archive directly with `xcodebuild archive` and an unused `CURRENT_PROJECT_VERSION` override; use the same number for the app and extension.
 
 This script exports the `.ipa`; it does not upload it. Use Xcode Organizer to upload the archive, or run `xcodebuild -exportArchive` with an export-options file whose `destination` is `upload`. Keep Apple's system directories first in `PATH` during export/upload: a Homebrew `rsync` peer rejects Apple's extended-attributes option and causes a `Copy failed` export error. The script already applies this for export. Archives and generated exports are ignored by git.
 
