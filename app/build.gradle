@@ -65,7 +65,7 @@ def resolveMonotonicVersionCode = { int minCode ->
 }
 
 def latestStableSdk = resolveLatestStableSdk(37)
-def autoVersionCode = resolveMonotonicVersionCode(33)
+def autoVersionCode = resolveMonotonicVersionCode(34)
 def isReleaseTask = gradle.startParameter.taskNames.any { it.toLowerCase().contains("release") }
 def includeSeedKey = project.hasProperty("seedKey") && project.property("seedKey").toString().toBoolean()
 

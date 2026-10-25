@@ -26,7 +26,9 @@ export function cleanPath(p) {
  */
 async function viewFor(item, { up, slot, assetDir, back, budget, onStep }) {
   let kind = kindOf(item.type, item.name);
-  const title = item.title || titleFromName(item.name);
+  const title =
+    (item.title && item.title !== item.name ? item.title.replace(/\.pdf$/i, "").trim() : "") ||
+    titleFromName(item.name);
   const size = item.blob.size;
   const file = up + slot;
   const assets = [];
