@@ -29,11 +29,29 @@ try {
   document.body.appendChild(frame);
   await new Promise((resolve) => {
     frame.onload = resolve;
-    frame.srcdoc = shell.replace('<script src="/hydrate.js"><\/script>', "").replace('<link rel="stylesheet" href="/site.css">', "");
+    frame.srcdoc = shell.replace('<script src="/hydrate.js"><\/script>', "").replace('<link rel="stylesheet" href="/site.css">', '<style>picture{display:block;width:160px;height:100px}</style>');
+  });
+  frame.contentWindow.scrollTo(0, 40);
+  const originalScroll = frame.contentWindow.scrollY;
+  const lazyPicture = frame.contentDocument.querySelector("picture");
+  assert(lazyPicture.getBoundingClientRect().top > frame.contentWindow.innerHeight, "The lazy picture starts outside the small mobile capture viewport");
+  const hydrated = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("The offscreen picture never hydrated")), 2000);
+    const observer = new frame.contentWindow.IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        lazyPicture.innerHTML = image;
+        observer.disconnect();
+        clearTimeout(timeout);
+        resolve();
+      }
+    });
+    observer.observe(lazyPicture);
   });
   assert(frame.contentWindow.eval(checkReady) === "wait", "A loaded document waits while its picture is empty");
-  frame.contentDocument.querySelector("picture").innerHTML = image;
+  assert(frame.contentWindow.scrollY !== originalScroll, "Readiness visits the offscreen picture to trigger lazy loading");
+  await hydrated;
   assert(frame.contentWindow.eval(checkReady) === "ready", "The snapshot becomes ready after image hydration");
+  assert(frame.contentWindow.scrollY === originalScroll, "Readiness restores the original scroll position before the snapshot");
   frame.remove();
 
   let renders = 0;

@@ -10,7 +10,19 @@
   // polling within the native snapshot timeout so their images are included.
   var pictures = document.querySelectorAll("picture");
   for (var i = 0; i < pictures.length; i++) {
-    if (!pictures[i].querySelector("img, source")) return "wait";
+    if (!pictures[i].querySelector("img, source")) {
+      var rect = pictures[i].getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        // IntersectionObserver-based images only hydrate inside the capture
+        // viewport. Visit one pending picture per poll, within the same timeout.
+        window.__sheepitSnapshotScroll = window.__sheepitSnapshotScroll || { x: scrollX, y: scrollY };
+        pictures[i].scrollIntoView({ block: "center", behavior: "instant" });
+        return "wait";
+      }
+    }
+  }
+  if (window.__sheepitSnapshotScroll) {
+    scrollTo({ left: window.__sheepitSnapshotScroll.x, top: window.__sheepitSnapshotScroll.y, behavior: "instant" });
   }
   return "ready";
 })()
