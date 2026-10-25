@@ -13,6 +13,17 @@
     var d = document.doctype;
     var dt = d ? "<!DOCTYPE " + d.name + (d.publicId ? ' PUBLIC "' + d.publicId + '"' : "") + (d.systemId ? ' "' + d.systemId + '"' : "") + ">" : "<!DOCTYPE html>";
     var root = document.documentElement.cloneNode(true);
+    if (window.__sheepitSnapshotScroll && document.body) {
+      // Responsive SSR may leave alternate layouts as skeletons. Since the
+      // saved copy has no scripts to hydrate another layout, keep the selected
+      // display modes at every width. Dimensions and typography stay responsive.
+      var originalBodyNodes = document.body.querySelectorAll("*");
+      var clonedBodyNodes = root.querySelector("body").querySelectorAll("*");
+      for (var bd = 0; bd < originalBodyNodes.length; bd++) {
+        var display = getComputedStyle(originalBodyNodes[bd]).display;
+        clonedBodyNodes[bd].style.setProperty("display", display, "important");
+      }
+    }
     var origAll = document.querySelectorAll("*");
     var cloneAll = root.querySelectorAll("*");
     for (var shIdx = 0; shIdx < origAll.length && shIdx < cloneAll.length; shIdx++) {

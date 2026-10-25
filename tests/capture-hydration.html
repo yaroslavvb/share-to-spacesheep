@@ -54,6 +54,37 @@ try {
   assert(frame.contentWindow.scrollY === originalScroll, "Readiness restores the original scroll position before the snapshot");
   frame.remove();
 
+  const serialize = await (await fetch("../app/src/main/assets/dom/serialize.js")).text();
+  const pixel = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"%3E%3Crect width="10" height="10" fill="green"/%3E%3C/svg%3E';
+  const responsive = `<html><head><style>
+    .mobile,.mobile-nav{display:block}.desktop,.desktop-nav{display:none}.caption{font-size:16px}
+    @media(min-width:700px){.mobile,.mobile-nav{display:none}.desktop,.desktop-nav{display:block}.caption{font-size:24px}}
+    </style></head><body><nav class="mobile-nav">Mobile sections</nav><nav class="desktop-nav">Desktop sections</nav><main><section class="mobile"><picture><img src='${pixel}'></picture><p class="caption">Loaded story. ${text}</p></section><section class="desktop"><div class="skeleton">Loading story…</div><picture></picture></section></main></body></html>`;
+  async function fixtureFrame(html, width) {
+    const fixture = document.createElement("iframe");
+    fixture.style.width = `${width}px`;
+    document.body.appendChild(fixture);
+    await new Promise((resolve) => { fixture.onload = resolve; fixture.srcdoc = html; });
+    return fixture;
+  }
+  const mobileFrame = await fixtureFrame(responsive, 320);
+  const plainSnapshot = JSON.parse(mobileFrame.contentWindow.eval(serialize));
+  assert(!parse(plainSnapshot.html).querySelector(".mobile").style.display, "Snapshots without lazy-picture scrolling keep their original responsive display rules");
+  mobileFrame.contentWindow.__sheepitSnapshotScroll = { x: 0, y: 0 };
+  const responsiveSnapshot = JSON.parse(mobileFrame.contentWindow.eval(serialize));
+  const copyFrame = await fixtureFrame(responsiveSnapshot.html, 1024);
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".mobile")).display === "block", "A tablet-width saved copy keeps the hydrated mobile image branch visible");
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".desktop")).display === "none", "A tablet-width saved copy keeps the unhydrated desktop skeleton hidden");
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".mobile-nav")).display === "block", "Captured text-only navigation stays visible at tablet width");
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".desktop-nav")).display === "none", "The alternate text-only navigation stays hidden at tablet width");
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".caption")).fontSize === "24px", "The saved copy still uses responsive typography at tablet width");
+  copyFrame.style.width = "390px";
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".mobile")).display === "block", "The hydrated image branch also remains visible at phone width");
+  assert(copyFrame.contentWindow.getComputedStyle(copyFrame.contentDocument.querySelector(".caption")).fontSize === "16px", "Responsive typography still adapts at phone width");
+  assert(!needsLiveDomRender(parse(responsiveSnapshot.html)), "The serialized hidden picture does not require another hydration pass");
+  mobileFrame.remove();
+  copyFrame.remove();
+
   let renders = 0;
   let renderTimeout = 0;
   let mainHtml = shell;
@@ -90,6 +121,10 @@ try {
   assert(renderTimeout === 12000, "Picture hydration receives the longer mobile rendering budget");
   assert(full.files.some((file) => file.path.endsWith(".jpg")), "The hydrated article's image bytes are preserved");
   assert(/<img[^>]+src="\.\/_assets\//.test(html), "The saved article points to its preserved image");
+  renderedHtml = shell.replace(picture, `<picture>${image}</picture><section style="display:none!important"><picture></picture></section>`);
+  const hiddenBranchCapture = await readSharedUrl("https://news.example/");
+  const hiddenBranchFull = hiddenBranchCapture.runFullCapture ? await hiddenBranchCapture.runFullCapture() : hiddenBranchCapture;
+  assert(hiddenBranchFull.files.some((file) => file.path.endsWith(".jpg")), "A hidden responsive placeholder does not reject a captured visible image");
   renderedHtml = shell;
   async function rejectsBlankCapture(message) {
     let error = null;
